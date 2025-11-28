@@ -9,12 +9,16 @@ Lightweight forecasting ensemble that runs locally or on multi-GPU AWS instances
 - `.gitignore` excludes logs, DBs, caches, secrets.
 
 ---
-## 1) Repository layout
+## 1) Repository layout (key files)
 - `torch/agents_vllm.py` – vLLM-based agent (forecast + optional logic model).
-- `torch/ensemble_torch.py` – orchestrates agents and writes metrics to DB.
+- `torch/agents_torch.py` – legacy HF transformers path (kept for reference).
+- `torch/ensemble_torch.py` – orchestrates agents and writes metrics to SQLite via `database_torch.py`.
 - `torch/config_vllm.py` – model URI map and vLLM/Run:ai defaults (TP/PP/backend, loader config).
 - `torch/logger_torch.py` – root logger; set `LOG_FILE` env to redirect.
-- `tests/test_agent_stub.py` – smoke tests with fake LLM/tokenizer.
+- `torch/semanticretriever_torch.py` – context retrieval and embeddings.
+- `torch/forecaster_torch.py` – entrypoint for vLLM ensemble run.
+- `torch/build_pod.sh` – optional setup helper (no secrets; run as root if used).
+- `torch/tests/test_agent_stub.py` – smoke tests with fake LLM/tokenizer.
 
 ---
 ## 2) Prereqs
