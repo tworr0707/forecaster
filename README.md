@@ -13,7 +13,7 @@ Lightweight forecasting ensemble that runs locally or on multi-GPU AWS instances
 - `torch/agents_vllm.py` – vLLM-based agent (forecast + optional logic model).
 - `torch/agents_torch.py` – legacy HF transformers path (kept for reference).
 - `torch/ensemble_torch.py` – orchestrates agents and writes metrics to SQLite via `database_torch.py`.
-- `torch/config_vllm.py` – model URI map and vLLM/Run:ai defaults (TP/PP/backend, loader config).
+- `torch/config.py` – unified config: embedding/retriever, HF defaults, vLLM/Run:ai settings.
 - `torch/logger_torch.py` – root logger; set `LOG_FILE` env to redirect.
 - `torch/semanticretriever_torch.py` – context retrieval and embeddings.
 - `torch/forecaster_torch.py` – entrypoint for vLLM ensemble run.
@@ -37,7 +37,7 @@ Dependencies are pinned: `vllm[runai]` 0.10.x, `torch` 2.3–<2.5, `transformers
 
 ---
 ## 4) Configure models and parallelism
-Edit `torch/config_vllm.py`:
+Edit `torch/config.py`:
 - Set `FORECAST_MODEL_PATHS_VLLM` to HF IDs for local dev or S3 URIs for prod (e.g., `s3://your-bucket/Llama-3-70B`).
 - Tune `VLLM_CONFIG`:
   - `tensor_parallel_size`: GPUs per node (often = GPU count).
@@ -61,7 +61,7 @@ export LOG_FILE=/var/log/forecaster.log # optional
 cd torch
 python forecaster_torch.py
 ```
-Uses vLLM agents with models defined in `config_vllm.py`. Forecasts and ensemble metrics stored via `database_torch.py` (SQLite by default).
+Uses vLLM agents with models defined in `config.py`. Forecasts and ensemble metrics stored via `database_torch.py` (SQLite by default).
 
 ---
 ## 6) AWS EC2 with vLLM + Run:ai S3 streaming (step-by-step)
@@ -105,7 +105,7 @@ export LOG_FILE=/var/log/forecaster.log     # optional log path
 ```
 
 ### 6.4 Point models to S3 and tune parallelism
-Edit `torch/config_vllm.py`:
+Edit `torch/config.py`:
 - Change `FORECAST_MODEL_PATHS_VLLM` entries to your S3 URIs, e.g.:
   ` "llama-70B": "s3://your-bucket/llama-3-70b" `
 - Set `tensor_parallel_size` = GPUs per node (e.g., 8 on p4d).

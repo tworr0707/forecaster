@@ -37,4 +37,4 @@ for model in "${model_list[@]}"; do
     echo "Done! $model downloaded."
 done
 
-echo "Note: This script populates the local Hugging Face cache. For Run:ai S3 streaming, upload models to S3 and set the S3 URIs in torch/config_vllm.py."
+echo "Note: This script populates the local Hugging Face cache. For Run:ai S3 streaming, upload models to S3 and set the S3 URIs in torch/config.py."

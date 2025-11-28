@@ -10,7 +10,7 @@ import gc
 from functools import lru_cache
 from logger_torch import setup_logger
 from vllm import LLM, SamplingParams
-from config_vllm import VLLM_CONFIG, FORECAST_MODEL_PATHS_VLLM, DEFAULT_MODEL_VLLM
+from config import VLLM_CONFIG, FORECAST_MODEL_PATHS_VLLM, DEFAULT_MODEL_VLLM
 
 logger = setup_logger(__name__)
 

@@ -14,7 +14,7 @@ import torch
 
 from logger_torch import setup_logger
 from agents_vllm import Agent
-from config_vllm import DEFAULT_MODEL_VLLM
+from config import DEFAULT_MODEL_VLLM
 from database_torch import Database
 from semanticretriever_torch import SemanticRetriever
 from utils_torch import calculate_expected_value, calculate_entropy, infer_likelihood, infer_confidence
