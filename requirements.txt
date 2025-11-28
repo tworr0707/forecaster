@@ -4,6 +4,7 @@ accelerate>=0.27,<0.29
 bitsandbytes>=0.39.0
 # Include Run:ai loader extras for S3 streaming; pin to a stable 0.10.x release
 vllm[runai]>=0.10.1,<0.11.0
+runai-model-streamer>=0.1.0
 
 # Transformers & NLP
 transformers>=4.42,<4.46
