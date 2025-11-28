@@ -10,7 +10,7 @@ import gc
 from functools import lru_cache
 from logger_torch import setup_logger
 from vllm import LLM, SamplingParams
-from config_vllm import VLLM_CONFIG
+from config_vllm import VLLM_CONFIG, FORECAST_MODEL_PATHS_VLLM, DEFAULT_MODEL_VLLM
 
 logger = setup_logger(__name__)
 
@@ -20,7 +20,7 @@ class Agent:
     """Agent for forecasting and optional logic generation using vLLM."""
     def __init__(
         self,
-        model: str = 'llama-3B',
+        model: str = DEFAULT_MODEL_VLLM,
         use_logic: bool = False,
         logic_model_path: Optional[str] = 'Qwen/QwQ-32B', 
         verbose: bool = False,
@@ -38,21 +38,8 @@ class Agent:
 
         self.context_limit = 30000 # Max tokens for prompt input / logic generation output
 
-        # Map supported model names to their Hugging Face model paths
-        if model == 'llama-3B':
-            self.forecast_model_path = 'meta-llama/Llama-3.2-3B-Instruct'
-        elif model == 'phi4':
-            self.forecast_model_path = 'microsoft/phi-4'
-        elif model == 'llama-1B':
-            self.forecast_model_path = 'meta-llama/Llama-3.2-1B-Instruct'
-        elif model == 'llama-8B':    
-            self.forecast_model_path = 'meta-llama/Llama-3.1-8B-Instruct'
-        elif model == 'llama-70B':
-            self.forecast_model_path = 'meta-llama/Llama-3.3-70B-Instruct'
-        elif model == 'llama-405B':
-            self.forecast_model_path = 'meta-llama/Llama-3.1-405B-Instruct'
-        elif model == 'nemotron':
-            self.forecast_model_path = 'nvidia/Llama-3_3-Nemotron-Super-49B-v1'
+        if model in FORECAST_MODEL_PATHS_VLLM:
+            self.forecast_model_path = FORECAST_MODEL_PATHS_VLLM[model]
         else:
             raise ValueError(f'Unknown model: {model}.')
 
@@ -69,6 +56,9 @@ class Agent:
         self.gpu_memory_utilization = gpu_memory_utilization or VLLM_CONFIG.get("gpu_memory_utilization", 0.90)
         self.swap_space_gb = swap_space_gb if swap_space_gb is not None else VLLM_CONFIG.get("swap_space_gb")
         self.max_model_len = max_model_len if max_model_len is not None else VLLM_CONFIG.get("max_model_len")
+        self.load_format = VLLM_CONFIG.get("load_format")
+        # copy to avoid mutating global config dict
+        self.model_loader_extra_config = dict(VLLM_CONFIG.get("model_loader_extra_config", {}))
 
         logger.info(
             "vLLM parallelism => TP=%s, PP=%s, backend=%s, gpu_mem_util=%.2f, swap=%s, max_len=%s",
@@ -98,6 +88,10 @@ class Agent:
                 gpu_memory_utilization=self.gpu_memory_utilization,
             )
 
+            if self.load_format:
+                llm_kwargs["load_format"] = self.load_format
+            if self.model_loader_extra_config:
+                llm_kwargs["model_loader_extra_config"] = self.model_loader_extra_config
             if self.swap_space_gb is not None:
                 llm_kwargs["swap_space"] = self.swap_space_gb
             if self.max_model_len is not None:
@@ -106,6 +100,11 @@ class Agent:
             if download_dir:
                 llm_kwargs["download_dir"] = download_dir
 
+            logger.info(
+                "vLLM load args: load_format=%s, loader_extra=%s",
+                llm_kwargs.get("load_format"),
+                llm_kwargs.get("model_loader_extra_config"),
+            )
             llm = LLM(**llm_kwargs)
             if is_forecast_model:
                 self._forecast_vocab_size = llm.get_tokenizer().vocab_size

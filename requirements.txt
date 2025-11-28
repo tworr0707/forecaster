@@ -2,7 +2,8 @@
 torch>=2.0.0
 accelerate>=0.20.0
 bitsandbytes>=0.39.0
-vllm>=0.4.0
+# Include Run:ai loader extras for S3 streaming; pin to a stable 0.10.x release
+vllm[runai]>=0.10.1,<0.11.0
 
 # Transformers & NLP
 transformers>=4.28.1
