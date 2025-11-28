@@ -3,12 +3,12 @@ from typing import Optional, Dict, Any
 import hashlib
 import torch
 import numpy as np
-from database_torch import Database
+from database import Database
 import pandas as pd
 import os
 import gc
 from functools import lru_cache
-from logger_torch import setup_logger
+from logger import setup_logger
 from vllm import LLM, SamplingParams
 from config import VLLM_CONFIG, FORECAST_MODEL_PATHS_VLLM, DEFAULT_MODEL_VLLM
 

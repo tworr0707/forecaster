@@ -92,7 +92,7 @@ def test_ensemble_stub(monkeypatch):
     monkeypatch.setattr(Agent, "start_forecast", lambda self: None)
     monkeypatch.setattr(Agent, "stop_forecast", lambda self: None)
 
-    from ensemble_torch import Ensemble
+    from ensemble import Ensemble
 
     ens = Ensemble()
     ens.forecast("test query")

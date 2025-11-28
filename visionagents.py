@@ -10,7 +10,7 @@ from PIL import Image
 from tqdm import tqdm
 from transformers import AutoModelForCausalLM, AutoProcessor
 
-from logger_torch import setup_logger
+from logger import setup_logger
 
 
 logger = setup_logger(__name__)

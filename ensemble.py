@@ -12,12 +12,12 @@ from matplotlib.patches import Rectangle
 
 import torch
 
-from logger_torch import setup_logger
+from logger import setup_logger
 from agents_vllm import Agent
 from config import DEFAULT_MODEL_VLLM
-from database_torch import Database
-from semanticretriever_torch import SemanticRetriever
-from utils_torch import calculate_expected_value, calculate_entropy, infer_likelihood, infer_confidence
+from database import Database
+from semanticretriever import SemanticRetriever
+from utils import calculate_expected_value, calculate_entropy, infer_likelihood, infer_confidence
 
 logger = setup_logger(__name__)
 plt.style.use('dark_background')

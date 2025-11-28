@@ -5,9 +5,9 @@ import torch
 from tqdm import tqdm
 import traceback
 
-from database_torch import Database
+from database import Database
 from config import EMBEDDING_MODEL_PATH, CROSS_ENCODER_MODEL_PATH
-from logger_torch import setup_logger
+from logger import setup_logger
 
 logger = setup_logger(__name__)
 

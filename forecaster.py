@@ -1,6 +1,6 @@
-from ensemble_torch import Ensemble
-from analysis_torch import ForecasterAnalysis
-from logger_torch import configure_root_logger
+from ensemble import Ensemble
+from analysis import ForecasterAnalysis
+from logger import configure_root_logger
 
 
 configure_root_logger()

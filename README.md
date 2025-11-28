@@ -11,12 +11,12 @@ Lightweight forecasting ensemble that runs locally or on multi-GPU AWS instances
 ---
 ## 1) Repository layout (key files)
 - `torch/agents_vllm.py` – vLLM-based agent (forecast + optional logic model).
-- `torch/agents_torch.py` – legacy HF transformers path (kept for reference).
-- `torch/ensemble_torch.py` – orchestrates agents and writes metrics to SQLite via `database_torch.py`.
+- `torch/agents.py` – legacy HF transformers path (kept for reference).
+- `torch/ensemble.py` – orchestrates agents and writes metrics to SQLite via `database.py`.
 - `torch/config.py` – unified config: embedding/retriever, HF defaults, vLLM/Run:ai settings.
-- `torch/logger_torch.py` – root logger; set `LOG_FILE` env to redirect.
-- `torch/semanticretriever_torch.py` – context retrieval and embeddings.
-- `torch/forecaster_torch.py` – entrypoint for vLLM ensemble run.
+- `torch/logger.py` – root logger; set `LOG_FILE` env to redirect.
+- `torch/semanticretriever.py` – context retrieval and embeddings.
+- `torch/forecaster.py` – entrypoint for vLLM ensemble run.
 - `torch/build_pod.sh` – optional setup helper (no secrets; run as root if used).
 - `torch/tests/test_agent_stub.py` – smoke tests with fake LLM/tokenizer.
 
@@ -60,9 +60,9 @@ export LOG_FILE=/var/log/forecaster.log # optional
 ## 5) Run locally (single node, in-process)
 ```bash
 cd torch
-python forecaster_torch.py
+python forecaster.py
 ```
-Uses vLLM agents with models defined in `config.py`. Forecasts and ensemble metrics stored via `database_torch.py` (SQLite by default).
+Uses vLLM agents with models defined in `config.py`. Forecasts and ensemble metrics stored via `database.py` (SQLite by default).
 
 ---
 ## 6) AWS EC2 with vLLM + Run:ai S3 streaming (step-by-step)
@@ -117,7 +117,7 @@ Edit `torch/config.py`:
 ### 6.5 Option A: In-process run (simplest)
 ```bash
 cd torch
-python forecaster_torch.py
+python forecaster.py
 ```
 This loads the model via Run:ai streamer directly in the Python process and writes forecasts to the local SQLite DB.
 

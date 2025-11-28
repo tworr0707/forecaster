@@ -6,11 +6,11 @@ import threading
 import hashlib
 import torch
 import numpy as np
-from database_torch import Database
+from database import Database
 import pandas as pd
 import os
 import gc
-from logger_torch import setup_logger
+from logger import setup_logger
 from config import FORECAST_MODEL_PATHS, DEFAULT_MODEL, DEFAULT_LOGIC_MODEL_PATH
 
 logger = setup_logger(__name__)

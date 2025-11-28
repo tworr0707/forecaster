@@ -13,7 +13,7 @@ import numpy as np
 from sentence_transformers import SentenceTransformer
 from typing import List, Optional, Dict
 from tqdm import tqdm
-from logger_torch import setup_logger
+from logger import setup_logger
 from config import EMBEDDING_MODEL_PATH, MAX_EMBEDDING_SIZE
 
 logger = setup_logger(__name__)
