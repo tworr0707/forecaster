@@ -1,0 +1,86 @@
+Structured Analytical Techniques Instruction Manual
+
+1. Analysis of Competing Hypotheses (ACH)
+   a. Identify Possible Hypotheses: Clearly articulate all potential explanations.
+   b. List Relevant Evidence: Compile evidence that could support or refute hypotheses.
+   c. Create a Matrix: Develop a matrix with hypotheses across the top and evidence listed vertically.
+   d. Assess Diagnosticity: Analyze how each evidence item supports or contradicts hypotheses.
+   e. Refine the Matrix: Eliminate evidence that does not help distinguish among hypotheses.
+   f. Draw Conclusions: Select the hypothesis best supported by evidence.
+   g. Report Findings: Summarize and rank hypotheses by their likelihood.
+   h. Identify Milestones: Define indicators for future verification or refutation.
+
+2. Key Assumptions Check
+   a. Identify Assumptions: List explicitly stated and implied assumptions.
+   b. Challenge Assumptions: Evaluate assumptions for validity and bias.
+   c. Refine Analysis: Modify analysis based on insights from assumption checks.
+
+3. Quality of Information Check
+   a. List Sources: Record all sources used.
+   b. Evaluate Sources: Assess credibility, reliability, and bias of each source.
+   c. Identify Gaps: Recognize missing or questionable information.
+   d. Refine Analysis: Adjust conclusions based on information quality.
+
+3. Devil’s Advocacy
+   a. Develop a Contrarian Perspective: Formulate credible opposing viewpoints.
+   b. Critique Original Analysis: Identify potential flaws, biases, and assumptions.
+   c. Address Weaknesses: Refine analysis to mitigate identified vulnerabilities.
+
+4. Team A/Team B Analysis
+   a. Form Teams: Establish independent analysis teams with different perspectives.
+   b. Present Independently: Teams provide separate analyses and conclusions.
+   c. Facilitate Debate: Identify differences to challenge assumptions.
+   d. Integrate Results: Synthesize findings into a comprehensive analysis.
+
+5. High-Impact/Low-Probability Analysis
+   a. Identify Events: Consider improbable events with significant potential impacts.
+   b. Evaluate Consequences: Analyze effects should these events occur.
+   c. Develop Contingency Plans: Prepare responses to manage these scenarios.
+
+6. What If? Analysis
+   a. Pose Hypothetical Scenarios: Generate questions about unexpected events.
+   b. Evaluate Outcomes: Explore implications of hypothetical scenarios.
+   c. Prepare Responses: Create strategic plans for handling these scenarios.
+
+6. Indicators or Signposts of Change
+   a. Determine Indicators: Identify observable indicators of emerging changes.
+   b. Monitor Continuously: Regularly track these indicators.
+   c. Update Assessments: Adjust analyses based on indicator developments.
+
+7. Brainstorming
+   a. Clarify Issue: Clearly define and scope the analytical issue.
+   b. Generate Ideas: Facilitate open, judgment-free ideation sessions.
+   c. Evaluate and Categorize: Assess ideas by relevance and practicality.
+   d. Develop Actionable Plans: Convert ideas into practical analytical steps.
+
+7. Outside-In Thinking
+   a. Assess External Environment: Identify external factors affecting analysis.
+   b. Evaluate Impact: Determine how external forces influence the situation.
+   c. Adjust Analysis: Integrate external context into the assessment.
+
+8. Red Team Analysis
+   a. Assume Opponent's Viewpoint: Analyze issues from an adversary’s perspective.
+   b. Anticipate Adversary Actions: Predict likely opponent strategies.
+   c. Assess Impact: Understand potential consequences for own strategic planning.
+
+8. Brainstorming
+   a. Define Problem Clearly: Establish a concise statement of the analytical issue.
+   b. Generate Ideas: Facilitate open, unrestricted idea generation.
+   c. Organize and Evaluate: Sort ideas by themes and assess their feasibility.
+   d. Develop Practical Steps: Convert promising ideas into specific analytical actions.
+
+9. "What If?" Analysis
+   a. Formulate Hypothetical Scenarios: Develop potential situations that challenge expectations.
+   b. Analyze Consequences: Explore implications of each hypothetical event.
+   c. Strategic Planning: Prepare tailored strategies to respond effectively.
+
+9. Red Team Analysis
+   a. View from the Adversary: Understand the opponent’s objectives and perspective.
+   b. Predict Possible Actions: Identify likely adversary strategies and tactics.
+   c. Assess Vulnerabilities: Analyze the potential impacts on your position or strategy.
+
+10. Scenario Analysis (Alternative Futures)
+   a. Identify Driving Forces: Determine key factors shaping potential futures.
+   b. Construct Scenarios: Develop diverse yet plausible future scenarios.
+   c. Analyze Each Scenario: Evaluate implications and risks for each future.
+   d. Develop Strategic Plans: Formulate responses or strategies for each scenario.
