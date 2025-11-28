@@ -112,5 +112,3 @@ Tests stub the LLM/tokenizer and ensure cache eviction + ensemble path work.
 ## 10) Operational cautions
 - Build script `build_pod.sh` installs system packages and logs into HF; run only in trusted, root-capable environments. It populates HF cache; for Run:ai streaming you still need models in S3.
 - Ensure `HF_TOKEN` and any AWS creds are passed via environment/instance roles, never committed.
-
-*** End Patch
