@@ -56,3 +56,5 @@ VLLM_CONFIG = {
     },
 }
 
+# Probability-cache bound for next_token_probs (per Agent forecast call)
+MAX_LOGPROB_CACHE = 128  # set >=101 to cover all number tokens 0–100
