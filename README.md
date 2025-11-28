@@ -65,6 +65,10 @@ Then point clients to the OpenAI-compatible endpoint (client wiring not included
 - Prefer IAM instance roles instead of static credentials. If needed, export `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_DEFAULT_REGION` (avoid committing them).
 - Keep S3 bucket in the same region as the instance.
 - For very large models, enable `swap_space_gb` in `config_vllm.py` to allow KV offload.
+- Minimal IAM policy example (attach to the instance role):
+  - `s3:GetObject` on `arn:aws:s3:::your-bucket/*`
+  - `s3:ListBucket` on `arn:aws:s3:::your-bucket`
+- In private subnets, add an S3 VPC endpoint to avoid Internet egress for weight downloads.
 
 ### Performance tuning checklist
 - `tensor_parallel_size`: typically number of GPUs on the node.
@@ -80,4 +84,10 @@ Then point clients to the OpenAI-compatible endpoint (client wiring not included
 ## Notes
 - Requirements pin `vllm[runai]` to 0.10.x for Run:ai streamer compatibility.
 - Sensitive files like `runpod.json` are removed/ignored; keep credentials out of the repo.
+- Set environment before running gated models or selecting GPUs:
+```bash
+export HF_TOKEN=your_token
+export CUDA_VISIBLE_DEVICES=0,1,2,3
+```
+- History: an HF token existed in past commits; run a history scrub (e.g., `git filter-repo --replace-text`) before making the repository public.
 *** End Patch

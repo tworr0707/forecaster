@@ -1,8 +1,9 @@
 import logging
+import os
 import sys
 
 def configure_root_logger(level: int = logging.INFO) -> None:
-    log_file="runpod_forecast_logs.log"
+    log_file = os.environ.get("LOG_FILE", "runpod_forecast_logs.log")
     root_logger = logging.getLogger()
     # Remove all existing handlers so we start fresh each run.
     for handler in root_logger.handlers[:]:

@@ -14,6 +14,7 @@ import torch
 
 from logger_torch import setup_logger
 from agents_vllm import Agent
+from config_vllm import DEFAULT_MODEL_VLLM
 from database_torch import Database
 from semanticretriever_torch import SemanticRetriever
 from utils_torch import calculate_expected_value, calculate_entropy, infer_likelihood, infer_confidence
@@ -26,11 +27,12 @@ class Ensemble:
     Ensemble combines forecasts from multiple Agents and produces a final probability distribution.
     """
     def __init__(self) -> None:
-        self.agents: List[Any] = [
-            Agent(model="llama-3B"),
-            Agent(model="phi4"),
-            Agent(model="llama-8B"),
+        default_models = [
+            DEFAULT_MODEL_VLLM,
+            "phi4",
+            "llama-8B",
         ]
+        self.agents: List[Any] = [Agent(model=m) for m in default_models]
 
         if not self.agents:
             raise RuntimeError("No agents loaded.")

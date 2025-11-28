@@ -150,7 +150,7 @@ class Agent:
                 torch.cuda.empty_cache()
             gc.collect()
 
-    def next_token_probs(self, prompt_string: str, llm_engine: LLM, cache: Dict[str, torch.Tensor]) -> torch.Tensor:
+    def next_token_probs(self, prompt_string: str, llm_engine: LLM, cache: Dict[str, torch.Tensor], max_cache_size: int = 128) -> torch.Tensor:
         prompt_bytes = prompt_string.encode('utf-8')
         prompt_key = hashlib.sha256(prompt_bytes).hexdigest()
 
@@ -196,6 +196,11 @@ class Agent:
         probs_tensor = torch.softmax(log_probs_tensor, dim=-1)
         
         cache[prompt_key] = probs_tensor
+        # Simple FIFO eviction to avoid unbounded growth
+        if len(cache) > max_cache_size:
+            first_key = next(iter(cache))
+            if first_key in cache:
+                cache.pop(first_key, None)
         return probs_tensor
 
     def forecast(self, query: str, context: Optional[str] = None) -> pd.DataFrame:

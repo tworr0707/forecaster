@@ -1,46 +1,40 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
 # Set HF_TOKEN in the environment before running (for gated models).
-# Do NOT hardcode tokens in this script.
 : "${HF_TOKEN:?Environment variable HF_TOKEN must be set}"
-export HF_HOME=/workspace/.cache/huggingface   
+export HF_HOME=${HF_HOME:-/workspace/.cache/huggingface}
+
+if [ "${EUID:-$(id -u)}" -ne 0 ]; then
+  echo "This script installs system packages; run as root or with sudo." >&2
+  exit 1
+fi
 
 echo "Updating package list..."
 apt-get update -y
-apt upgrade -y
-apt install python3-pip
-apt install tmux -y
+apt-get upgrade -y
+apt-get install -y python3-pip tmux
 
 echo "Upgrading pip..."
-pip install --upgrade pip
+python3 -m pip install --upgrade pip
 
 echo "Installing Python dependencies..."
-pip install -r requirements.txt
+python3 -m pip install -r requirements.txt
 
 echo "Installing Hugging Face CLI..."
-pip install "huggingface_hub[cli]"
-
-echo "Checking HF_TOKEN..."
-if [ -z "${HF_TOKEN:-}" ]; then
-  echo "Error: HF_TOKEN environment variable not set"
-  exit 1
-fi
+python3 -m pip install "huggingface_hub[cli]"
 
 echo "Logging in to Hugging Face..."
 huggingface-cli login --token "$HF_TOKEN"
 
 model_list=(
-    #"meta-llama/Llama-3.2-3B-Instruct"
-    #"meta-llama/Llama-3.2-1B-Instruct"
-    #"microsoft/phi-4"
-    #"meta-llama/Llama-3.1-8B-Instruct"
     "meta-llama/Llama-3.3-70B-Instruct"
-    #"Qwen/QwQ-32B"
-    #"nvidia/Llama-3_3-Nemotron-Super-49B-v1"
 )
 
 for model in "${model_list[@]}"; do
-    echo "Downloading model $model..."
+    echo "Downloading model $model to HF cache at $HF_HOME ..."
     huggingface-cli download "$model"
     echo "Done! $model downloaded."
 done
+
+echo "Note: This script populates the local Hugging Face cache. For Run:ai S3 streaming, upload models to S3 and set the S3 URIs in torch/config_vllm.py."
