@@ -27,7 +27,7 @@ Lightweight forecasting ensemble that runs locally or on multi-GPU AWS instances
 - Network access to S3 bucket that stores models.
 
 ---
-## 3) Install (local dev)
+## 3) Install (local dev, run from repo root)
 ```bash
 python -m pip install --upgrade pip
 pip install -r requirements.txt
