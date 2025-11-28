@@ -394,9 +394,11 @@ class Agent:
                 full_generated_text = current_total_text
         except Exception as e:
             logger.error(f"Error during vLLM streaming generation for logic: {e}", exc_info=True)
+            raise RuntimeError(f"vLLM streaming error in generate_logic: {e}")
+        finally:
+            # Ensure engines are in a known state
             self.stop_logic()
             self.start_forecast()
-            raise RuntimeError(f"vLLM streaming error in generate_logic: {e}")
 
         if self.verbose:
             print()

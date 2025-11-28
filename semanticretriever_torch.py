@@ -48,6 +48,8 @@ class SemanticRetriever:
                 logger.error("Failed to clean duplicates: %s\n%s", e, traceback.format_exc())
         except Exception as e:
             logger.error("Failed to ensure latest articles: %s\n%s", e, traceback.format_exc())
+            # Surface a clear signal to callers
+            raise RuntimeError("Retriever failed to refresh articles; check DB/network logs.") from e
 
     # ------------------------------------------------------------------
     # Embedding helpers
@@ -115,7 +117,7 @@ class SemanticRetriever:
             return pairs
         except Exception as e:
             logger.error("Error retrieving article embeddings: %s\n%s", e, traceback.format_exc())
-            raise ValueError(f"Error retrieving article embeddings: {e}") from e
+            raise RuntimeError("Retriever failed to fetch embeddings; check DB/network logs.") from e
 
     # ------------------------------------------------------------------
     # Retrieval pipeline
