@@ -60,32 +60,89 @@ python forecaster_torch.py
 Uses vLLM agents with models defined in `config_vllm.py`. Forecasts and ensemble metrics stored via `database_torch.py` (SQLite by default).
 
 ---
-## 6) AWS EC2 with vLLM + Run:ai S3 streaming
-1) Spin up p4d/p5 (or similar) with IAM role granting S3 read.
-2) VPC: add S3 gateway endpoint if private subnet.
-3) Configure `torch/config_vllm.py` model URIs to S3.
-4) Install deps on the instance as in section 3.
-5) Run:
+## 6) AWS EC2 with vLLM + Run:ai S3 streaming (step-by-step)
+### 6.1 Launch + IAM
+- Instance: p4d/p5 (8x A100/H100) or bigger if needed.
+- Attach an IAM role with at least:
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": ["s3:GetObject"],
+      "Resource": ["arn:aws:s3:::your-bucket/*"]
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["s3:ListBucket"],
+      "Resource": ["arn:aws:s3:::your-bucket"]
+    }
+  ]
+}
+```
+- If in a private subnet, create an S3 Gateway VPC Endpoint to avoid public egress.
+
+### 6.2 Prep the instance
+```bash
+sudo apt-get update -y && sudo apt-get upgrade -y
+sudo apt-get install -y git tmux python3-pip
+python3 -m pip install --upgrade pip
+git clone https://github.com/tworr0707/forecaster.git
+cd forecaster/torch
+python3 -m pip install -r requirements.txt
+```
+
+### 6.3 Set environment for this session
+```bash
+export HF_TOKEN=your_hf_token               # only if model is gated on HF
+export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 # adjust to GPUs you want to use
+export LOG_FILE=/var/log/forecaster.log     # optional log path
+```
+
+### 6.4 Point models to S3 and tune parallelism
+Edit `torch/config_vllm.py`:
+- Change `FORECAST_MODEL_PATHS_VLLM` entries to your S3 URIs, e.g.:
+  ` "llama-70B": "s3://your-bucket/llama-3-70b" `
+- Set `tensor_parallel_size` = GPUs per node (e.g., 8 on p4d).
+- Keep `pipeline_parallel_size` = 1 for single-node; raise for multi-node.
+- Keep `load_format = "runai_streamer"`; raise `model_loader_extra_config["concurrency"]` (start 32–64).
+- Consider `swap_space_gb` if prompts are very long.
+
+### 6.5 Option A: In-process run (simplest)
 ```bash
 cd torch
 python forecaster_torch.py
 ```
-or run vLLM server instead of in-process:
+This loads the model via Run:ai streamer directly in the Python process and writes forecasts to the local SQLite DB.
+
+### 6.6 Option B: Run vLLM server (API mode)
+Start server:
 ```bash
 vllm serve \
-  --model s3://your-bucket/Llama-3-70B \
+  --model s3://your-bucket/llama-3-70b \
   --load-format runai_streamer \
   --tensor-parallel-size 8 \
   --pipeline-parallel-size 1 \
   --distributed-executor-backend mp \
-  --gpu-memory-utilization 0.90 \
-  --model-loader-extra-config '{"concurrency":32}'
+  --gpu-memory-utilization 0.92 \
+  --model-loader-extra-config '{"concurrency":48}'
 ```
-Point clients to the OpenAI-compatible endpoint (client wiring not included here).
+Then point your client (not provided here) to the OpenAI-compatible endpoint on `http://<host>:8000/v1`.
 
-IAM policy minimum (attach to instance role):
-- `s3:GetObject` on `arn:aws:s3:::your-bucket/*`
-- `s3:ListBucket` on `arn:aws:s3:::your-bucket`
+### 6.7 Verify the load
+- Check logs (`LOG_FILE` or console) for: TP/PP settings, load_format=runai_streamer, and S3 download progress.
+- Run a tiny probe:
+```bash
+curl http://localhost:8000/health
+```
+(server mode) or observe forecast logs for token generation (in-process).
+
+### 6.8 Troubleshooting
+- Stuck at download: verify IAM role + bucket policy + S3 endpoint; try lowering/raising `concurrency`.
+- OOM during load: lower `tensor_parallel_size` or raise `swap_space_gb`.
+- NCCL init errors: set `NCCL_DEBUG=INFO` and ensure GPUs are visible; try `distributed_executor_backend=mp` (default) if Ray causes device mismatch.
+- Slow first token: ensure bucket is in same region; consider warmup by generating a short prompt after start.
 
 ---
 ## 7) Logging and paths
