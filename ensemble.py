@@ -65,6 +65,7 @@ class Ensemble:
                     e,
                     traceback.format_exc(),
                 )
+                full_context = None
 
             context_chunks: List[Optional[str]] = [None]
             if full_context:

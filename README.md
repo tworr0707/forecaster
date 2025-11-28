@@ -11,7 +11,7 @@ Lightweight forecasting ensemble that runs locally or on multi-GPU AWS instances
 ---
 ## 1) Repository layout (key files, repo root)
 - `agents_vllm.py` – vLLM-based agent (forecast + optional logic model).
-- `agents.py` – legacy HF transformers path (kept for reference).
+- `agents.py` – legacy HF transformers path (deprecated; kept for reference only).
 - `ensemble.py` – orchestrates agents and writes metrics to SQLite via `database.py`.
 - `config.py` – unified config: embedding/retriever, HF defaults, vLLM/Run:ai settings.
 - `logger.py` – root logger; set `LOG_FILE` env to redirect.
@@ -34,10 +34,11 @@ pip install -r requirements.txt
 ```
 Dependencies are pinned: `vllm[runai]` 0.10.x, `torch` 2.3–<2.5, `transformers` 4.42–<4.46, `sentence-transformers` 2.7–<2.8.
 Note: `runai-model-streamer` is included in requirements; ensure your index can fetch it (public PyPI) before enabling `load_format="runai_streamer"`.
+Tested CUDA/driver combo: torch 2.3.x + CUDA 12.1 + vLLM 0.10.x. Align your driver/wheels accordingly.
 
 ---
 ## 4) Configure models and parallelism
-Edit `torch/config.py`:
+Edit `config.py`:
 - Set `FORECAST_MODEL_PATHS_VLLM` to HF IDs for local dev or S3 URIs for prod (e.g., `s3://your-bucket/Llama-3-70B`).
 - Tune `VLLM_CONFIG`:
   - `tensor_parallel_size`: GPUs per node (often = GPU count).
@@ -47,6 +48,7 @@ Edit `torch/config.py`:
   - `load_format`: keep `runai_streamer` for S3 streaming.
   - `model_loader_extra_config`: `concurrency` (16–64 typical), `distributed` (True for multi-node pulls), optional `memory_limit`.
   - `swap_space_gb`: enable KV offload if context/model is very large.
+  - `MAX_LOGPROB_CACHE`: keep >=101 to cover numbers 0–100; lower if RAM constrained.
 
 Env helpers:
 ```bash
@@ -92,7 +94,7 @@ sudo apt-get update -y && sudo apt-get upgrade -y
 sudo apt-get install -y git tmux python3-pip
 python3 -m pip install --upgrade pip
 git clone https://github.com/tworr0707/forecaster.git
-cd forecaster/torch
+cd forecaster
 python3 -m pip install -r requirements.txt
 ```
 

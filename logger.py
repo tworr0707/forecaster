@@ -1,15 +1,18 @@
 import logging
 import os
 import sys
+from logging.handlers import RotatingFileHandler
 
 def configure_root_logger(level: int = logging.INFO) -> None:
-    log_file = os.environ.get("LOG_FILE", "runpod_forecast_logs.log")
+    log_dir = os.environ.get("LOG_DIR", ".")
+    os.makedirs(log_dir, exist_ok=True)
+    log_file = os.environ.get("LOG_FILE", os.path.join(log_dir, "runpod_forecast_logs.log"))
     root_logger = logging.getLogger()
     # Remove all existing handlers so we start fresh each run.
     for handler in root_logger.handlers[:]:
         root_logger.removeHandler(handler)
-    # Create a new file handler in write mode.
-    file_handler = logging.FileHandler(log_file, mode='w')
+    # Rotating file handler
+    file_handler = RotatingFileHandler(log_file, mode='a', maxBytes=10_000_000, backupCount=3)
     file_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     file_handler.setFormatter(file_formatter)
     root_logger.addHandler(file_handler)

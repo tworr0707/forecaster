@@ -91,6 +91,16 @@ class Agent:
 
             if self.load_format:
                 llm_kwargs["load_format"] = self.load_format
+                if self.load_format == "runai_streamer":
+                    import importlib
+                    if importlib.util.find_spec("runai_model_streamer") is None:
+                        msg = (
+                            "runai_model_streamer not found. "
+                            "Install vllm[runai] and runai-model-streamer, "
+                            "or set load_format=None to use the default loader."
+                        )
+                        logger.error(msg)
+                        raise ImportError(msg)
             if self.model_loader_extra_config:
                 llm_kwargs["model_loader_extra_config"] = self.model_loader_extra_config
             if self.swap_space_gb is not None:
@@ -101,11 +111,7 @@ class Agent:
             if download_dir:
                 llm_kwargs["download_dir"] = download_dir
 
-            logger.info(
-                "vLLM load args: load_format=%s, loader_extra=%s",
-                llm_kwargs.get("load_format"),
-                llm_kwargs.get("model_loader_extra_config"),
-            )
+            logger.info("vLLM load args: %s", llm_kwargs)
             llm = LLM(**llm_kwargs)
             if is_forecast_model:
                 self._forecast_vocab_size = llm.get_tokenizer().vocab_size

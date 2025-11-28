@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Safety: require explicit opt-in to avoid accidental local execution
+: "${CONFIRM_BUILDPOD:?Set CONFIRM_BUILDPOD=yes to run this script in a disposable VM/container}" 
+
 # Set HF_TOKEN in the environment before running (for gated models).
 : "${HF_TOKEN:?Environment variable HF_TOKEN must be set}"
 export HF_HOME=${HF_HOME:-/workspace/.cache/huggingface}
@@ -9,6 +12,8 @@ if [ "${EUID:-$(id -u)}" -ne 0 ]; then
   echo "This script installs system packages; run as root or with sudo." >&2
   exit 1
 fi
+
+export DEBIAN_FRONTEND=noninteractive
 
 echo "Updating package list..."
 apt-get update -y
@@ -25,7 +30,7 @@ echo "Installing Hugging Face CLI..."
 python3 -m pip install "huggingface_hub[cli]"
 
 echo "Logging in to Hugging Face..."
-huggingface-cli login --token "$HF_TOKEN"
+huggingface-cli login --token "$HF_TOKEN" --timeout 60
 
 model_list=(
     "meta-llama/Llama-3.3-70B-Instruct"
@@ -33,7 +38,7 @@ model_list=(
 
 for model in "${model_list[@]}"; do
     echo "Downloading model $model to HF cache at $HF_HOME ..."
-    huggingface-cli download "$model"
+    huggingface-cli download "$model" --timeout 300 || { echo "Download failed for $model"; exit 1; }
     echo "Done! $model downloaded."
 done
 

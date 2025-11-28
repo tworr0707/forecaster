@@ -1,12 +1,38 @@
+import sys
+import torch
 from ensemble import Ensemble
 from analysis import ForecasterAnalysis
 from logger import configure_root_logger
+from config import VLLM_CONFIG, validate_config
 
 
 configure_root_logger()
 
 
 def main() -> None:
+    # Basic environment/config validation
+    try:
+        validate_config()
+    except Exception as e:
+        print(f"Config validation failed: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if not torch.cuda.is_available():
+        print("CUDA is not available; a GPU is required for vLLM runs.", file=sys.stderr)
+        sys.exit(1)
+    gpu_count = torch.cuda.device_count()
+    tp = VLLM_CONFIG.get("tensor_parallel_size") or gpu_count
+    if tp > gpu_count:
+        print(f"Configured tensor_parallel_size={tp} exceeds available GPUs={gpu_count}.", file=sys.stderr)
+        sys.exit(1)
+    # compatibility info for operators
+    torch_cuda = torch.version.cuda
+    try:
+        import vllm
+        vllm_ver = getattr(vllm, "__version__", "unknown")
+    except Exception:
+        vllm_ver = "unknown"
+    print(f"Environment: CUDA {torch_cuda}, GPUs detected {gpu_count}, vLLM {vllm_ver}")
     queries = [
         'Will the US attack Iran in 2025?',
         'Will India and Pakistan experience a direct military conflict before 2030?',

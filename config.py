@@ -58,3 +58,39 @@ VLLM_CONFIG = {
 
 # Probability-cache bound for next_token_probs (per Agent forecast call)
 MAX_LOGPROB_CACHE = 128  # set >=101 to cover all number tokens 0–100
+
+
+def validate_config():
+    """Basic validation to fail fast with actionable errors."""
+    tp = VLLM_CONFIG.get("tensor_parallel_size") or 0
+    if tp < 0:
+        raise ValueError("tensor_parallel_size must be >=0 or None")
+    pp = VLLM_CONFIG.get("pipeline_parallel_size") or 0
+    if pp < 1:
+        raise ValueError("pipeline_parallel_size must be >=1")
+    gmu = VLLM_CONFIG.get("gpu_memory_utilization", 0.9)
+    if not (0.0 < gmu <= 0.99):
+        raise ValueError("gpu_memory_utilization must be in (0,1].")
+    mlc = VLLM_CONFIG.get("model_loader_extra_config", {})
+    if mlc and not isinstance(mlc, dict):
+        raise ValueError("model_loader_extra_config must be a dict.")
+    if isinstance(mlc, dict):
+        conc = mlc.get("concurrency", 0)
+        if conc and conc < 1:
+            raise ValueError("model_loader_extra_config.concurrency must be >=1.")
+    if MAX_LOGPROB_CACHE < 101:
+        raise ValueError("MAX_LOGPROB_CACHE must be >=101 to cover numbers 0-100.")
+
+    if VLLM_CONFIG.get("load_format") == "runai_streamer":
+        try:
+            import importlib
+            if importlib.util.find_spec("runai_model_streamer") is None:
+                raise ImportError
+        except ImportError:
+            raise ImportError("runai_model_streamer is required for load_format='runai_streamer'. Install vllm[runai] and runai-model-streamer.")
+        # basic URI check for S3 targets
+        for name, uri in FORECAST_MODEL_PATHS_VLLM.items():
+            if uri.startswith("s3://"):
+                continue
+            if "://" in uri and not uri.startswith("http"):
+                raise ValueError(f"Model path for {name} should be S3/HF/local; got {uri}")
