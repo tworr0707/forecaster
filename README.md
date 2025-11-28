@@ -34,6 +34,7 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 Dependencies are pinned: `vllm[runai]` 0.10.x, `torch` 2.3–<2.5, `transformers` 4.42–<4.46, `sentence-transformers` 2.7–<2.8.
+Note: `runai-model-streamer` is included in requirements; ensure your index can fetch it (public PyPI) before enabling `load_format="runai_streamer"`.
 
 ---
 ## 4) Configure models and parallelism
