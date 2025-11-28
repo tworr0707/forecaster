@@ -11,7 +11,7 @@ This README explains what the project does and gives step‑by‑step instructio
 ---
 ## 0. Security & hygiene
 - No secrets are tracked in the repo. Set `HF_TOKEN`, `AWS_*`, etc. via environment variables only.
-- `.gitignore` excludes logs, databases, caches, and secrets; double‑check before making the repo public.
+- `.gitignore` excludes logs, databases, caches, and secrets.
 
 ---
 ## 1. Repository layout (root)
