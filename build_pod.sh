@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 
-export HF_TOKEN="<REMOVED>"
-export HF_HOME=/workspace/.cache/huggingface   
-
+# Set HF_TOKEN in the environment before running (for gated models).
+# Do NOT hardcode tokens in this script.
 : "${HF_TOKEN:?Environment variable HF_TOKEN must be set}"
+export HF_HOME=/workspace/.cache/huggingface   
 
 echo "Updating package list..."
 apt-get update -y
