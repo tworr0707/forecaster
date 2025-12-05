@@ -54,6 +54,9 @@ class Ensemble:
         self.context_limit = min(
             agent.context_limit for agent in self.agents if hasattr(agent, "context_limit")
         )
+        self.char_limit = min(
+            getattr(agent, "char_limit", agent.context_limit * 4) for agent in self.agents
+        )
         self.db = Database()
         self.retriever = SemanticRetriever(get_new_articles=False, db=self.db)
         self.logic_client = LogicClient(model_id=LOGIC_MODEL_ID) if self.use_logic else None
@@ -153,7 +156,8 @@ class Ensemble:
                                 query,
                                 e,
                             )
-                            raise
+                            forecast_df = None
+                            break
                         except Exception as e:
                             logger.error(
                                 "Forecast failed for agent %d chunk %d: %s\n%s",
@@ -300,16 +304,15 @@ class Ensemble:
             logger.error("Unexpected error during forecast execution: %s\n%s", e, traceback.format_exc())
 
     def chunk_context(self, context: str) -> List[str]:
-        """
-        Split context into chunks so that each chunk does not exceed the context limit.
-        """
+        """Split context into chunks using a char heuristic (~4 chars/token)."""
+        limit = self.char_limit
         chunks = []
         start = 0
         while start < len(context):
-            end = min(start + self.context_limit, len(context))
+            end = min(start + limit, len(context))
             chunks.append(context[start:end])
             start = end
-        logger.info(f'Splitting context into {len(chunks)} chunks.')
+        logger.info(f'Splitting context into {len(chunks)} chunks (char limit={limit}).')
         return chunks
 
     def ensemble_method(self, ensemble_df: pd.DataFrame, method: str = 'entropy_weighted') -> pd.Series:

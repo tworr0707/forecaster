@@ -44,7 +44,8 @@ class Agent:
         self.verbose = verbose
         self.db = Database()
 
-        self.context_limit = 30000 # Max tokens for prompt input / logic generation output
+        self.context_limit = 30000  # Max tokens for prompt input / logic generation output
+        self.char_limit = int(self.context_limit * 4)  # rough chars per token heuristic for slicing
 
         if model in FORECAST_MODEL_PATHS_VLLM:
             self.forecast_model_path = FORECAST_MODEL_PATHS_VLLM[model]
@@ -83,7 +84,7 @@ class Agent:
         self._logic_llm_engine: Optional[LLM] = None
         self._forecast_vocab_size: Optional[int] = None
         self.eos_token_id: Optional[int] = None # For the forecast model
-        self._number_token_map: Dict[int, List[int]] = {}
+        self._number_token_variants: Dict[int, List[List[int]]] = {}
         self._percent_token_id: Optional[int] = None
         self.single_token_mode: bool = True
         self.number_logprob_top_k = NUMBER_LOGPROB_TOP_K
@@ -156,7 +157,7 @@ class Agent:
 
     def _precompute_number_tokens(self, tokenizer) -> None:
         """Precompute token ids for 0-100 and simple punctuation to avoid hot-path tokenization."""
-        self._number_token_map.clear()
+        self._number_token_variants.clear()
         self._percent_token_id = None
 
         pct_ids = tokenizer.encode("%", add_special_tokens=False) or []
@@ -167,16 +168,20 @@ class Agent:
         empty_encodings = []
         multi_token = 0
         for num in range(101):
-            ids = tokenizer.encode(str(num), add_special_tokens=False) or []
-            if not ids:
+            variants: List[List[int]] = []
+            for s in (str(num), " " + str(num)):
+                ids = tokenizer.encode(s, add_special_tokens=False) or []
+                if ids:
+                    variants.append(ids)
+            if not variants:
                 empty_encodings.append(num)
                 continue
-            if len(ids) > 1:
+            if any(len(v) > 1 for v in variants):
                 multi_token += 1
-            self._number_token_map[num] = ids
+            self._number_token_variants[num] = variants
 
         if empty_encodings:
-            logger.warning("Tokenizer returned empty ids for numbers: %s", empty_encodings)
+            logger.warning("Tokenizer returned empty ids for numbers (no-space or leading-space): %s", empty_encodings)
 
         self.single_token_mode = multi_token == 0 and not empty_encodings
         if not self.single_token_mode:
@@ -213,7 +218,7 @@ class Agent:
         if self._forecast_llm_engine is None or self.eos_token_id is None or self._forecast_vocab_size is None:
             raise RuntimeError("Forecast model not loaded properly before forecast call.")
 
-        usable_context = context[:self.context_limit] if context else ''
+        usable_context = context[: self.char_limit] if context else ''
         context_line = f"Knowledge: {usable_context}\n\n" if len(usable_context) > 0 else ''
         logic_text = logic_str if (self.use_logic and logic_str) else ''
         logic_line = f"Argument: {logic_text}\n\n" if len(logic_text) > 0 else ''
@@ -274,6 +279,32 @@ class Agent:
         lp_dict = outputs[0].outputs[0].logprobs[0]
         return {int(k): v.logprob for k, v in lp_dict.items()}
 
+    def _get_logprob_batch(self, prompts: List[str]) -> List[Dict[int, float]]:
+        if not prompts:
+            return []
+        params = SamplingParams(
+            temperature=0.0,
+            top_p=1.0,
+            max_new_tokens=1,
+            logprobs=self.number_logprob_top_k,
+        )
+        try:
+            outputs = self._forecast_llm_engine.generate(prompts, params)
+        except Exception as e:
+            if is_oom_error(e):
+                raise wrap_oom(e)
+            raise
+        if not outputs:
+            raise RuntimeError("vLLM returned no outputs for batch logprob step")
+        result: List[Dict[int, float]] = []
+        for out in outputs:
+            if not out.outputs:
+                result.append({})
+                continue
+            lp_dict = out.outputs[0].logprobs[0]
+            result.append({int(k): v.logprob for k, v in lp_dict.items()})
+        return result
+
     def _number_distribution_single_token(self, prompt: str) -> List[float]:
         """Approximate distribution over 0–100 using one-step top-K logprobs.
 
@@ -285,15 +316,17 @@ class Agent:
         log_floor = math.log(1e-12)
         logs: List[float] = []
         for num in range(101):
-            token_ids = self._number_token_map.get(num, [])
-            if not token_ids:
+            variants = self._number_token_variants.get(num, [])
+            variant_lps = []
+            for ids in variants:
+                if len(ids) != 1:
+                    continue
+                lp = logprob_dict.get(ids[0], log_floor)
+                variant_lps.append(lp)
+            if variant_lps:
+                logs.append(self._logsumexp(variant_lps))
+            else:
                 logs.append(log_floor)
-                continue
-            token_id = token_ids[0]
-            lp = logprob_dict.get(token_id, log_floor)
-            if lp == log_floor:
-                logger.debug("Number %d not in top-K logprobs; using floor", num)
-            logs.append(lp)
         return self._normalize_log_probs(logs)
 
     def _number_distribution_multi_token(self, prompt: str) -> List[float]:
@@ -304,30 +337,60 @@ class Agent:
         """
         tokenizer = self._forecast_llm_engine.get_tokenizer()
         log_floor = math.log(1e-12)
-        probs: List[float] = []
-        for num in range(101):
-            token_ids = self._number_token_map.get(num, [])
-            if not token_ids:
-                # If tokenizer cannot emit this number, give it floor prob and continue
-                probs.append(log_floor)
+        log_floor = math.log(1e-12)
+        # Each item: (num, variant_tokens, context_str, acc_logprob)
+        active = []
+        for num, variants in self._number_token_variants.items():
+            for v in variants:
+                if not v:
+                    continue
+                active.append({"num": num, "tokens": v, "ctx": prompt, "lp": 0.0})
+        if not active:
+            return [1/101.0 for _ in range(101)]
+
+        # Step through tokens positionally, batching logprob calls per step
+        max_len = max(len(a["tokens"]) for a in active)
+        for pos in range(max_len):
+            prompts = []
+            idx_map = []
+            for idx, item in enumerate(active):
+                if pos >= len(item["tokens"]):
+                    continue
+                prompts.append(item["ctx"])
+                idx_map.append(idx)
+            if not prompts:
                 continue
-            context = prompt
-            total_lp = 0.0
-            for tid in token_ids:
-                step_lp = self._get_logprob_dict(context)
-                lp = step_lp.get(tid, log_floor)
-                total_lp += lp
-                context += tokenizer.decode([tid])
-            # terminator step combining EOS and optional %
-            term_lp_dict = self._get_logprob_dict(context)
+            lp_batch = self._get_logprob_batch(prompts)
+            for lp_dict, a_idx in zip(lp_batch, idx_map):
+                tid = active[a_idx]["tokens"][pos]
+                lp = lp_dict.get(tid, log_floor)
+                active[a_idx]["lp"] += lp
+                active[a_idx]["ctx"] += tokenizer.decode([tid])
+
+        # Terminator step
+        prompts = [item["ctx"] for item in active]
+        term_lp_batch = self._get_logprob_batch(prompts) if prompts else []
+        for lp_dict, item in zip(term_lp_batch, active):
             terminators = []
             if self.eos_token_id is not None:
-                terminators.append(term_lp_dict.get(self.eos_token_id, log_floor))
+                terminators.append(lp_dict.get(self.eos_token_id, log_floor))
             if self._percent_token_id is not None:
-                terminators.append(term_lp_dict.get(self._percent_token_id, log_floor))
+                terminators.append(lp_dict.get(self._percent_token_id, log_floor))
             if terminators:
-                total_lp += self._logsumexp(terminators)
-            probs.append(total_lp)
+                item["lp"] += self._logsumexp(terminators)
+
+        # Aggregate logprobs per number
+        num_to_lps: Dict[int, List[float]] = {n: [] for n in range(101)}
+        for item in active:
+            num_to_lps[item["num"]].append(item["lp"])
+
+        probs = []
+        for num in range(101):
+            lps = num_to_lps.get(num, [])
+            if lps:
+                probs.append(self._logsumexp(lps))
+            else:
+                probs.append(log_floor)
         return self._normalize_log_probs(probs)
 
     @staticmethod
@@ -351,7 +414,7 @@ class Agent:
         if self._logic_llm_engine is None:
             raise RuntimeError("Logic model not loaded properly before generate_logic call.")
 
-        usable_context = context[:self.context_limit] if context else ''
+        usable_context = context[: self.char_limit] if context else ''
         
         try:
             base = os.path.dirname(__file__)

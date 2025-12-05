@@ -72,14 +72,13 @@ class SemanticRetriever:
 
         for title in titles:
             try:
-                # Attempt to fetch and store (handles both new and existing)
                 txt = self.db.fetch_and_store_article(title)
                 if not txt:
                     continue
                 kept_titles.append(title)
                 texts.append(txt)
             except Exception as e:
-                logger.error("Failed to fetch/store article '%s': %s\n%s", title, e, traceback.format_exc())
+                logger.error("Failed to fetch article '%s': %s\n%s", title, e, traceback.format_exc())
 
         if not texts:
             logger.warning("No texts fetched for refresh; skipping embedding.")
@@ -92,11 +91,18 @@ class SemanticRetriever:
             return
 
         if len(embeddings) != len(kept_titles):
-            logger.warning("Mismatch in embeddings (%d) vs titles (%d); aborting store.", len(embeddings), len(kept_titles))
-            return
+            logger.warning(
+                "Mismatch in embeddings (%d) vs titles (%d); continuing with min count.",
+                len(embeddings), len(kept_titles)
+            )
 
         for title, emb, txt in zip(kept_titles, embeddings, texts):
             try:
-                self.db.store_article(title, txt, embedding=np.array(emb, dtype=float), embedding_model=self.embedding_client.model_id)
+                self.db.store_article_text_and_embedding(
+                    title,
+                    txt,
+                    embedding=np.array(emb, dtype=float),
+                    embedding_model=self.embedding_client.model_id,
+                )
             except Exception as e:
                 logger.error("Failed to store embedded article '%s': %s", title, e, exc_info=True)

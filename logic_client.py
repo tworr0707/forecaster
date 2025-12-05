@@ -48,8 +48,8 @@ class LogicClient:
             "max_tokens": 512,
             "temperature": 0.3,
             "top_p": 0.9,
+            "system": SYSTEM_PROMPT,
             "messages": [
-                {"role": "system", "content": [{"type": "text", "text": SYSTEM_PROMPT}]},
                 {"role": "user", "content": [{"type": "text", "text": user_prompt}]},
             ],
         }

@@ -312,7 +312,11 @@ class Database:
     # Simple Wikipedia fetch helper (used by retriever refresh)
     # ------------------------------------------------------------------
     def fetch_and_store_article(self, title: str, text: str | None = None) -> Optional[str]:
-        """Store given text or fetch from Wikipedia via wikipedia-api if text is None."""
+        """Fetch full text (if needed) and return it; caller decides when to persist embedding.
+
+        Note: this writes text immediately (without embedding). Callers that want atomic
+        text+embedding should compute the embedding and then call store_article once.
+        """
         if text is None:
             try:
                 wiki = wikipediaapi.Wikipedia("Forecaster", "en")
@@ -324,12 +328,11 @@ class Database:
             except Exception as e:
                 logger.error("Error fetching article '%s': %s", title, e, exc_info=True)
                 return None
-        try:
-            self.store_article(title, text)
-            return text
-        except Exception as e:
-            logger.error("Failed to store article '%s': %s", title, e, exc_info=True)
-            return None
+        return text
+
+    def store_article_text_and_embedding(self, title: str, text_value: str, embedding: np.ndarray, embedding_model: str) -> None:
+        """Atomic helper to store text and embedding together."""
+        self.store_article(title, text_value, embedding=embedding, embedding_model=embedding_model)
 
     # ------------------------------------------------------------------
     # Forecast / ensemble / logic persistence
@@ -448,11 +451,13 @@ class Database:
 
         if self.use_stub:
             if table_name == "articles":
-                rows = []
-                for title, payload in self._stub.articles.items():
-                    rows.append({"title": title, **payload})
-                return pd.DataFrame(rows)
-            return pd.DataFrame(getattr(self._stub, table_name, []))
+                with Database._lock:
+                    rows = []
+                    for title, payload in self._stub.articles.items():
+                        rows.append({"title": title, **payload})
+                    return pd.DataFrame(rows)
+            with Database._lock:
+                return pd.DataFrame(getattr(self._stub, table_name, []))
 
         assert self._engine is not None
         with self._engine.begin() as conn:
