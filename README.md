@@ -17,14 +17,16 @@ This README explains what the project does and gives step‑by‑step instructio
 ## 1. Repository layout (root)
 - `forecaster.py` – main entrypoint; runs a set of queries through the ensemble and generates plots.
 - `ensemble.py` – orchestrates vLLM agents, aggregates results, and writes metrics to SQLite via `database.py`.
-- `agents_vllm.py` – main vLLM-based agent (forecasts + optional “logic” / chain‑of‑thought model).
+- `agents.py` – vLLM-based agent (forecasts + optional “logic” / chain‑of‑thought model).
 - `agents.py` – **legacy** Hugging Face transformers path (deprecated; kept for reference only).
-- `semanticretriever.py` – fetches articles and embeddings to provide contextual knowledge.
-- `database.py` – SQLite-backed storage for articles, embeddings, and forecast results.
+- `semanticretriever.py` – Bedrock-backed embeddings + Aurora pgvector retrieval.
+- `database.py` – Aurora/pgvector storage (falls back to an in-memory stub for dev/tests).
 - `config.py` – unified configuration for embedding models, HF defaults, vLLM/Run:ai settings, and cache limits.
 - `logger.py` – configures root logging (file + console); honours `LOG_FILE` and `LOG_DIR`.
 - `build_pod.sh` – optional setup helper script for a GPU VM/container (installs system & Python deps and downloads HF models).
 - `tests/test_agent_stub.py` – smoke tests using fake LLM/tokeniser to validate core glue code.
+- `bedrock_embeddings.py` – Bedrock embedding client (Cohere placeholder; stubbed offline).
+- `logic_client.py` – Bedrock Claude client for logic generation with <thinking> stripping.
 
 ---
 ## 2. Requirements
@@ -49,7 +51,7 @@ Key dependencies:
 - `vllm[runai]` (pinned to a 0.10.x release).
 - `torch` 2.3–<2.5.
 - `transformers` 4.42–<4.46.
-- `sentence-transformers` 2.7–<2.8.
+- `boto3`, `sqlalchemy`, `psycopg2-binary`, `pgvector` (Aurora + Bedrock clients).
 - `runai-model-streamer` – required when `VLLM_CONFIG["load_format"] == "runai_streamer"`.
 
 If you hit CUDA or wheel errors, explicitly install the torch build that matches your CUDA driver (see PyTorch “Previous Versions” matrix).
@@ -69,7 +71,7 @@ All configuration lives in `config.py`. This file controls:
 - `DEFAULT_MODEL`, `DEFAULT_LOGIC_MODEL_PATH` – defaults for the legacy path (kept for reference).
 
 ### 4.3 Forecasting (vLLM + Run:ai, primary path)
-- `FORECAST_MODEL_PATHS_VLLM` – model name → path mapping used by `agents_vllm.py`:
+- `FORECAST_MODEL_PATHS_VLLM` – model name → path mapping used by `agents.py`:
   - For local dev, use HF IDs like `meta-llama/Llama-3.2-3B-Instruct`.
   - For production with Run:ai, use S3 URIs like `s3://your-bucket/Llama-3-70B`.
 - `DEFAULT_MODEL_VLLM` – default vLLM model key (e.g. `"llama-3B"`).
@@ -78,6 +80,15 @@ All configuration lives in `config.py`. This file controls:
   - `pipeline_parallel_size`: >1 for multi‑node or very large models; keep 1 for single node.
   - `distributed_executor_backend`: `"mp"` (default) or `"ray"`.
   - `gpu_memory_utilization`: fraction of each GPU’s memory vLLM may use (0.0–1.0; recommended 0.90–0.95).
+
+### 4.4 AWS (Aurora + Bedrock + S3)
+- `AURORA_CONNECTION_STRING` **or** `AURORA_DB_HOST`/`AURORA_DB_PORT`/`AURORA_DB_USER`/`AURORA_DB_PASSWORD`/`AURORA_DB_NAME`
+- `DB_POOL_SIZE`, `DB_MAX_OVERFLOW` – SQLAlchemy pool sizing for Aurora.
+- `AWS_REGION` – Bedrock/Aurora/S3 region.
+- `EMBEDDING_MODEL_ID`, `EMBEDDING_DIM`, `EMBED_BATCH_SIZE` – Bedrock embedding config (pgvector dimension must match).
+- `LOGIC_MODEL_ID`, `LOGIC_MAX_WORKERS` – Bedrock Claude model + parallelism for per-chunk logic generation.
+- `PLOTS_BUCKET`, `ENVIRONMENT` – S3 bucket/key prefix for plots and analysis exports.
+- `USE_DB_STUB=true` – optional dev/test mode using in-memory storage + stubbed Bedrock calls (no AWS required).
   - `swap_space_gb`: host swap (in GB) to offload KV cache (for long contexts).
   - `max_model_len`: optional hard cap on context length; `None` lets vLLM infer from the model.
   - `load_format`: `"runai_streamer"` to enable Run:ai S3 streaming; `None` to use default vLLM loader.
@@ -85,7 +96,7 @@ All configuration lives in `config.py`. This file controls:
     - `concurrency`: number of concurrent threads reading from S3 (16–64 typical).
     - `distributed`: `True` for multi‑node streaming setups.
     - Optional `memory_limit` cap in bytes.
-- `MAX_LOGPROB_CACHE` – bound on the per‑forecast logprob cache used when computing probabilities for numbers 0–100:
+- `NUMBER_LOGPROB_TOP_K` – top-K logprobs requested per step when extracting the 0–100 distribution (missing tokens get a tiny floor prob).
   - Keep **≥101** to cover all numbers 0–100.
   - Lower only if you’re very RAM‑constrained.
 
@@ -113,7 +124,7 @@ What this does:
 - Validates `config.py` (including Run:ai module presence and basic ranges).
 - Checks that CUDA is available and that `tensor_parallel_size` does not exceed `torch.cuda.device_count()`.
 - Logs environment info (detected CUDA version, GPU count, vLLM version).
-- Uses `agents_vllm.Agent` instances and `ensemble.Ensemble` to:
+- Uses `agents.Agent` instances and `ensemble.Ensemble` to:
   - For each hard‑coded query in `forecaster.py`, retrieve context (via `semanticretriever.py`),
   - Run one or more vLLM agents,
   - Persist per‑agent and ensemble metrics into `database.db` (via `database.py`),
@@ -216,7 +227,7 @@ vllm serve \
   --model-loader-extra-config '{"concurrency":48}'
 ```
 
-Then point an OpenAI‑compatible client at `http://<host>:8000/v1`. (The current repo does not contain a server‑mode client, but you can adapt `agents_vllm.py` to use HTTP instead of in‑process vLLM.)
+Then point an OpenAI‑compatible client at `http://<host>:8000/v1`. (The current repo does not contain a server‑mode client, but you can adapt `agents.py` to use HTTP instead of in‑process vLLM.)
 
 ### 6.7 Verifying the load
 
@@ -296,7 +307,7 @@ Recommended additional tests before a production deployment:
 - Increase `model_loader_extra_config["concurrency"]` (e.g., 32–64) for higher S3 throughput, but watch for saturation.
 - Use `swap_space_gb` when you need very long prompts and can tolerate some host memory usage for KV cache.
 - Pin GPUs with `CUDA_VISIBLE_DEVICES` to isolate workloads or to run side‑by‑side experiments.
-- Keep `MAX_LOGPROB_CACHE >= 101`; only lower if absolutely necessary, and monitor memory.
+- Tune `NUMBER_LOGPROB_TOP_K` to balance accuracy vs. memory; floor probabilities ensure all 0–100 values remain represented.
 
 ---
 ## 10. Operational cautions
@@ -311,6 +322,6 @@ Recommended additional tests before a production deployment:
   - Never commit tokens or credentials to the repo.
 - **Legacy HF path**
   - `agents.py` and the associated HF config entries are **deprecated**.
-  - Prefer `agents_vllm.py` and the vLLM/Run:ai path for any new deployments.
+  - Prefer `agents.py` and the vLLM/Run:ai path for any new deployments.
 
 With the above configuration and operational practices, Forecaster can be run on a single high‑end GPU workstation or on multi‑GPU AWS nodes with S3‑backed models. Adjust the config and environment to match your hardware, models, and reliability requirements. 

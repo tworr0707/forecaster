@@ -1,23 +1,36 @@
 import datetime as dt
-import re
+import hashlib
+import io
 import os
+import re
 import traceback
-from typing import List, Optional, Any
+from concurrent.futures import ThreadPoolExecutor
+from typing import List, Optional, Any, Dict
 
 import pandas as pd
 import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
+import boto3
 
 import torch
 
 from logger import setup_logger
-from agents_vllm import Agent
-from config import DEFAULT_MODEL_VLLM
+from agents import Agent
+from config import (
+    DEFAULT_MODEL_VLLM,
+    LOGIC_MODEL_ID,
+    LOGIC_MAX_WORKERS,
+    USE_LOGIC,
+    PLOTS_BUCKET,
+    ENVIRONMENT,
+)
 from database import Database
 from semanticretriever import SemanticRetriever
+from logic_client import LogicClient
 from utils import calculate_expected_value, calculate_entropy, infer_likelihood, infer_confidence
+from oom_utils import ForecastingOOMError
 
 logger = setup_logger(__name__)
 plt.style.use('dark_background')
@@ -32,7 +45,8 @@ class Ensemble:
             "phi4",
             "llama-8B",
         ]
-        self.agents: List[Any] = [Agent(model=m) for m in default_models]
+        self.use_logic: bool = str(USE_LOGIC).lower() == "true"
+        self.agents: List[Any] = [Agent(model=m, use_logic=self.use_logic) for m in default_models]
 
         if not self.agents:
             raise RuntimeError("No agents loaded.")
@@ -41,11 +55,13 @@ class Ensemble:
             agent.context_limit for agent in self.agents if hasattr(agent, "context_limit")
         )
         self.db = Database()
-        self.retriever = SemanticRetriever(get_new_articles=True)
+        self.retriever = SemanticRetriever(get_new_articles=False, db=self.db)
+        self.logic_client = LogicClient(model_id=LOGIC_MODEL_ID) if self.use_logic else None
         self.ensemble_df: Optional[pd.DataFrame] = None
 
         base_dir = os.path.dirname(os.path.abspath(__file__))
         self.plot_path = os.path.join(base_dir, "plots")
+        self.s3_client = boto3.client("s3") if PLOTS_BUCKET else None
 
     def forecast(self, query: str, image_files: Optional[List[str]] = None) -> None:
         """Generate and persist an ensemble forecast for the supplied query."""
@@ -67,46 +83,93 @@ class Ensemble:
                 )
                 full_context = None
 
-            context_chunks: List[Optional[str]] = [None]
+            context_chunks: List[tuple[int, Optional[str]]] = [(0, None)]
             if full_context:
-                context_chunks = self.chunk_context(full_context)
+                chunks = self.chunk_context(full_context)
+                context_chunks = list(enumerate(chunks))
+
+            time_now = dt.datetime.now()
+
+            # Generate logic per chunk in parallel (only when logic is enabled)
+            chunk_logic: Dict[int, str] = {}
+            if self.use_logic and context_chunks and context_chunks[0][1] is not None:
+                def logic_for_chunk(idx: int, chunk_text: str) -> tuple[int, str]:
+                    logic_text = ""
+                    try:
+                        logic_text = self.logic_client.generate_logic(query, chunk_text)
+                    except Exception as e:
+                        logger.error(
+                            "Logic generation failed for chunk %d: %s\n%s",
+                            idx,
+                            e,
+                            traceback.format_exc(),
+                        )
+                    try:
+                        context_hash = hashlib.sha256((chunk_text or "").encode("utf-8")).hexdigest()
+                        self.db.store_logic(
+                            date_time=time_now,
+                            query=query,
+                            chunk_index=idx,
+                            context_hash=context_hash,
+                            model=self.logic_client.model_id,
+                            logic_text=logic_text,
+                        )
+                    except Exception as e:
+                        logger.error("Failed to persist logic chunk %d: %s", idx, e, exc_info=True)
+                    return idx, logic_text
+
+                with ThreadPoolExecutor(max_workers=LOGIC_MAX_WORKERS) as ex:
+                    futures = {ex.submit(logic_for_chunk, idx, chunk): idx for idx, chunk in context_chunks}
+                    for future in futures:
+                        try:
+                            idx, text_val = future.result()
+                            chunk_logic[idx] = text_val
+                        except Exception as e:
+                            logger.error("Logic future failed: %s\n%s", e, traceback.format_exc())
 
             agent_idx = 1
-            time_now = dt.datetime.now()
 
             for agent in self.agents:
                 try:
                     agent.start_forecast()
                     forecasts: List[pd.Series] = []
-                    context_idx = 1
-                    for context in (context_chunks if context_chunks[0] is not None else [None]):
+                    for idx, context in context_chunks:
                         logger.info(
                             "Running agent %d for context chunk %d of %d…",
                             agent_idx,
-                            context_idx,
+                            idx + 1,
                             len(context_chunks),
                         )
                         forecast_df: Optional[pd.DataFrame] = None
                         try:
-                            forecast_df = agent.forecast(query=query, context=context)
+                            logic_text = chunk_logic.get(idx, "") if self.use_logic and context is not None else None
+                            forecast_df = agent.forecast(query=query, context=context, logic_str=logic_text)
+                        except ForecastingOOMError as e:
+                            logger.error(
+                                "Fatal CUDA OOM in agent %d (%s) chunk %d for query '%s': %s",
+                                agent_idx,
+                                getattr(agent, "forecast_model_path", "unknown_model"),
+                                idx + 1,
+                                query,
+                                e,
+                            )
+                            raise
                         except Exception as e:
                             logger.error(
                                 "Forecast failed for agent %d chunk %d: %s\n%s",
                                 agent_idx,
-                                context_idx,
+                                idx + 1,
                                 e,
                                 traceback.format_exc(),
                             )
-                            context_idx += 1
                             continue
 
                         if forecast_df is None or "probs" not in forecast_df.columns:
                             logger.warning(
                                 "Agent %d returned invalid forecast for chunk %d; skipping.",
                                 agent_idx,
-                                context_idx,
+                                idx + 1,
                             )
-                            context_idx += 1
                             continue
 
                         forecasts.append(forecast_df["probs"])
@@ -146,7 +209,6 @@ class Ensemble:
                                 metric_err,
                                 traceback.format_exc(),
                             )
-                        context_idx += 1
 
                     if forecasts:
                         avg_forecast = pd.concat(forecasts, axis=1).mean(axis=1)
@@ -231,6 +293,9 @@ class Ensemble:
                         torch.cuda.synchronize()
                     if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
                         torch.mps.empty_cache()
+        except ForecastingOOMError:
+            # Let OOM propagate so the caller can handle/exit accordingly
+            raise
         except Exception as e:
             logger.error("Unexpected error during forecast execution: %s\n%s", e, traceback.format_exc())
 
@@ -378,16 +443,26 @@ class Ensemble:
 
             safe_query = re.sub(r'[^a-zA-Z0-9 _-]', '', query).replace(' ', '_')
             try:
-                os.makedirs(self.plot_path, exist_ok=True)
+                buffer = io.BytesIO()
+                plt.savefig(buffer, format="png", dpi=300, bbox_inches="tight")
+                buffer.seek(0)
+                if self.s3_client and PLOTS_BUCKET:
+                    key = f"{ENVIRONMENT}/plots/{safe_query}_{pred_time_str}.png"
+                    self.s3_client.put_object(
+                        Bucket=PLOTS_BUCKET,
+                        Key=key,
+                        Body=buffer,
+                        ContentType="image/png",
+                    )
+                    logger.info("Plot uploaded to s3://%s/%s", PLOTS_BUCKET, key)
+                else:
+                    os.makedirs(self.plot_path, exist_ok=True)
+                    local_path = os.path.join(self.plot_path, f"{safe_query}_{pred_time_str}.png")
+                    with open(local_path, "wb") as f:
+                        f.write(buffer.getvalue())
+                    logger.info("Plot saved locally to %s (no PLOTS_BUCKET configured)", local_path)
             except Exception as e:
-                logger.error("Failed to create plot directory '%s': %s\n%s", self.plot_path, e, traceback.format_exc())
-
-            plot_file = os.path.join(self.plot_path, f"{safe_query}_{pred_time_str}.png")
-            try:
-                plt.savefig(plot_file)
-                logger.info("Plot saved to %s", plot_file)
-            except (PermissionError, OSError) as e:
-                logger.error("Failed to save plot to '%s': %s", plot_file, e)
+                logger.error("Failed to persist plot: %s\n%s", e, traceback.format_exc())
             finally:
                 plt.close(fig)
         except Exception as e:

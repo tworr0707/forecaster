@@ -1,19 +1,25 @@
-import sqlite3
+import io
 import os
-import pandas as pd
-import matplotlib.pyplot as plt
-plt.style.use('dark_background')
 import math
-import numpy as np
-import matplotlib.dates as mdates
-from matplotlib.collections import LineCollection
 import textwrap
 import datetime as dt
 
+import boto3
+import matplotlib.pyplot as plt
+plt.style.use('dark_background')
+import matplotlib.dates as mdates
+import numpy as np
+import pandas as pd
+from matplotlib.collections import LineCollection
+
+from config import PLOTS_BUCKET, ENVIRONMENT
+from database import Database
+
 class ForecasterAnalysis:
-    def __init__(self, db_path: str = 'database.db'):
+    def __init__(self, db: Database | None = None):
         self.base_dir = os.path.dirname(os.path.abspath(__file__))
-        self.db_path = os.path.join(self.base_dir, db_path)
+        self.db = db or Database()
+        self.s3_client = boto3.client("s3") if PLOTS_BUCKET else None
 
         # Update figure aesthetics for high-end consultancy
         plt.rcParams.update({
@@ -27,8 +33,9 @@ class ForecasterAnalysis:
     def fetch_forecast_data(self):
         """Fetches all forecast data from the database."""
         try:
-            with sqlite3.connect(self.db_path) as conn:
-                df = pd.read_sql_query("SELECT * FROM ensembles", conn)
+            df = self.db.load_table("ensembles")
+            if df.empty:
+                return None
             df['date_time'] = pd.to_datetime(df['date_time'])
             df = df.loc[df['expected_value'] > 0.01]
             return df
@@ -173,8 +180,24 @@ class ForecasterAnalysis:
         last_updated = dt.datetime.now().strftime('Last updated: %Y-%m-%d %H:%M')
         fig.text(0.98, 0.98, last_updated, ha='right', va='top', fontsize=8)
 
-        # Save at high resolution
-        output_path = os.path.join(self.base_dir, save_path)
-        fig.savefig(output_path, dpi=300, bbox_inches='tight')
-        plt.close(fig)
-        print(f"Charts saved to {output_path}")
+        # Save at high resolution (S3 preferred)
+        buf = io.BytesIO()
+        fig.savefig(buf, dpi=300, bbox_inches='tight', format='png')
+        buf.seek(0)
+        try:
+            if self.s3_client and PLOTS_BUCKET:
+                key = f"{ENVIRONMENT}/analysis/{save_path}"
+                self.s3_client.put_object(
+                    Bucket=PLOTS_BUCKET,
+                    Key=key,
+                    Body=buf,
+                    ContentType="image/png",
+                )
+                print(f"Charts uploaded to s3://{PLOTS_BUCKET}/{key}")
+            else:
+                output_path = os.path.join(self.base_dir, save_path)
+                with open(output_path, "wb") as f:
+                    f.write(buf.getvalue())
+                print(f"Charts saved to {output_path}")
+        finally:
+            plt.close(fig)

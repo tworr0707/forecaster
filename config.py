@@ -4,9 +4,51 @@ Edit this file per deployment (e.g., S3 model paths, parallelism, loader
 settings). Keep secrets in environment variables, not here.
 """
 
-# Embedding / retriever
+import os
+
+# ---------------------------------------------------------------------------
+# AWS / Aurora / Bedrock (all secrets via env vars)
+# ---------------------------------------------------------------------------
+# AWS region for Bedrock/S3/RDS calls
+AWS_REGION = os.getenv("AWS_REGION", "eu-west-1")
+
+# Aurora connection: prefer full URI; otherwise supply parts via env.
+# Example URI: postgresql+psycopg2://user:pass@host:5432/dbname
+AURORA_CONNECTION_STRING = os.getenv("AURORA_CONNECTION_STRING")
+AURORA_DB_USER = os.getenv("AURORA_DB_USER", "CHANGE_ME_USER")  # set to Aurora user
+AURORA_DB_PASSWORD = os.getenv("AURORA_DB_PASSWORD")  # store in Secrets Manager/SSM
+AURORA_DB_HOST = os.getenv("AURORA_DB_HOST", "aurora-cluster.endpoint")
+AURORA_DB_PORT = os.getenv("AURORA_DB_PORT", "5432")
+AURORA_DB_NAME = os.getenv("AURORA_DB_NAME", "forecaster")
+DB_POOL_SIZE = int(os.getenv("DB_POOL_SIZE", "5"))            # SQLAlchemy core pool
+DB_MAX_OVERFLOW = int(os.getenv("DB_MAX_OVERFLOW", "5"))      # extra conns above pool
+USE_DB_STUB = os.getenv("USE_DB_STUB", "false").lower() == "true"  # in-memory dev mode
+
+# Bedrock model ids (non-secret; set per environment)
+EMBEDDING_MODEL_ID = os.getenv("EMBEDDING_MODEL_ID", "cohere.embed-english-v3")
+LOGIC_MODEL_ID = os.getenv("LOGIC_MODEL_ID", "anthropic.claude-3-7-sonnet-20241022")
+
+# Bedrock stub toggles for offline/dev
+BEDROCK_STUB = os.getenv("BEDROCK_STUB", "false").lower() == "true"
+BEDROCK_STUB_FALLBACK = os.getenv("BEDROCK_STUB_FALLBACK", "false").lower() == "true"
+BEDROCK_LOGIC_STUB = os.getenv("BEDROCK_LOGIC_STUB", "false").lower() == "true"
+BEDROCK_LOGIC_STUB_FALLBACK = os.getenv("BEDROCK_LOGIC_STUB_FALLBACK", "false").lower() == "true"
+
+# Embedding settings: dimension must match Bedrock embedding model
+EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "1024"))
+EMBED_BATCH_SIZE = int(os.getenv("EMBED_BATCH_SIZE", "16"))   # per Bedrock batch call
+
+# Logic: toggle and max concurrent chunk calls to Bedrock logic model
+USE_LOGIC = "false"
+LOGIC_MAX_WORKERS = int(os.getenv("LOGIC_MAX_WORKERS", "4"))
+
+# Artefacts / plots S3 bucket and key prefix
+PLOTS_BUCKET = os.getenv("PLOTS_BUCKET", "forecaster-plots-dev")
+ENVIRONMENT = os.getenv("ENVIRONMENT", "dev")                 # used in S3 key prefix
+
+# Embedding / retriever (legacy local ST models; used only in fallback paths)
 EMBEDDING_MODEL_PATH = "Qwen/Qwen3-Embedding-0.6B"
-MAX_EMBEDDING_SIZE = 20_000
+MAX_EMBEDDING_SIZE = 20_000  # chars to include when embedding article text locally
 CROSS_ENCODER_MODEL_PATH = "cross-encoder/ms-marco-MiniLM-L12-v2"
 
 # Legacy HF forecasting (kept for reference)
@@ -56,8 +98,9 @@ VLLM_CONFIG = {
     },
 }
 
-# Probability-cache bound for next_token_probs (per Agent forecast call)
-MAX_LOGPROB_CACHE = 128  # set >=101 to cover all number tokens 0–100
+# vLLM logprob extraction settings
+# NUMBER_LOGPROB_TOP_K: how many top logprobs to request per step; missing tokens get a tiny floor prob
+NUMBER_LOGPROB_TOP_K = int(os.getenv("NUMBER_LOGPROB_TOP_K", "256"))
 
 
 def validate_config():
@@ -78,8 +121,8 @@ def validate_config():
         conc = mlc.get("concurrency", 0)
         if conc and conc < 1:
             raise ValueError("model_loader_extra_config.concurrency must be >=1.")
-    if MAX_LOGPROB_CACHE < 101:
-        raise ValueError("MAX_LOGPROB_CACHE must be >=101 to cover numbers 0-100.")
+    if NUMBER_LOGPROB_TOP_K < 64:
+        raise ValueError("NUMBER_LOGPROB_TOP_K must be at least 64 to capture number tokens reasonably.")
 
     if VLLM_CONFIG.get("load_format") == "runai_streamer":
         try:
@@ -94,3 +137,8 @@ def validate_config():
                 continue
             if "://" in uri and not uri.startswith("http"):
                 raise ValueError(f"Model path for {name} should be S3/HF/local; got {uri}")
+
+    if EMBEDDING_DIM <= 0:
+        raise ValueError("EMBEDDING_DIM must be positive.")
+    if LOGIC_MAX_WORKERS < 1:
+        raise ValueError("LOGIC_MAX_WORKERS must be >=1.")

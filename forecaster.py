@@ -4,6 +4,7 @@ from ensemble import Ensemble
 from analysis import ForecasterAnalysis
 from logger import configure_root_logger
 from config import VLLM_CONFIG, validate_config
+from oom_utils import ForecastingOOMError
 
 
 configure_root_logger()
@@ -56,6 +57,12 @@ def main() -> None:
     for query in queries:
         try:
             ensemble.forecast(query)
+        except ForecastingOOMError as e:
+            print(
+                f"GPU OOM while forecasting query '{query}'. Reduce model size/parallelism or adjust VLLM_CONFIG. {e}",
+                file=sys.stderr,
+            )
+            sys.exit(42)
         except Exception as e:
             print(f"Error for query '{query}': {e}")
 
