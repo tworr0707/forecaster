@@ -65,10 +65,10 @@ class LogicClient:
             return self._stub_logic(query, context_chunk)
 
         
-        user_prompt = f"Knowledge (chunk):\n{context_chunk}\n\nQuery: {query}\n\nExplain relevant causal/forecasting reasoning only."
+        user_prompt = f"Knowledge:\n{context_chunk}\n\nQuery: {query}\n\n"
         payload = {
             "anthropic_version": "bedrock-2023-05-31",
-            "max_tokens": 512,
+            "max_tokens": None,
             "temperature": 0.3,
             "top_p": 0.9,
             "system": SYSTEM_PROMPT,
