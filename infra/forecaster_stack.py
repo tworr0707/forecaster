@@ -106,11 +106,9 @@ class ForecasterStack(cdk.Stack):
         cluster.secret.grant_read(ec2_role)
 
         # EC2 GPU instance
-        ami = ec2.MachineImage.latest_amazon_linux2023(
-            cpu_type=ec2.AmazonLinuxCpuType.X86_64,
-            edition=ec2.AmazonLinuxEdition.STANDARD,
-            virtualization=ec2.AmazonLinuxVirt.HVM,
-            storage=ec2.AmazonLinuxStorage.GENERAL_PURPOSE,
+        ami = ec2.MachineImage.from_ssm_parameter(
+            "/aws/service/deeplearning/ami-pytorch-latest/ubuntu20.04",
+            os=ec2.OperatingSystemType.LINUX,
         )
 
         ec2_instance = ec2.Instance(

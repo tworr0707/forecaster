@@ -97,30 +97,36 @@ class Database:
     # Connection helpers
     # ------------------------------------------------------------------
     def _build_connection_string(self) -> Optional[str]:
+        # 1) explicit connection string wins
         if AURORA_CONNECTION_STRING:
             return AURORA_CONNECTION_STRING
-        password = AURORA_DB_PASSWORD or self._fetch_secret_password()
-        if all([AURORA_DB_USER, password, AURORA_DB_HOST, AURORA_DB_NAME]):
-            return (
-                f"postgresql+psycopg2://{AURORA_DB_USER}:{password}"
-                f"@{AURORA_DB_HOST}:{AURORA_DB_PORT}/{AURORA_DB_NAME}"
-            )
+
+        # 2) try secret for full connection details
+        secret_params = self._fetch_secret_params() if AURORA_SECRET_ARN else {}
+        host = secret_params.get("host") or AURORA_DB_HOST
+        port = secret_params.get("port") or AURORA_DB_PORT or "5432"
+        user = secret_params.get("username") or AURORA_DB_USER
+        password = secret_params.get("password") or secret_params.get("master_password") or AURORA_DB_PASSWORD
+        dbname = secret_params.get("dbname") or secret_params.get("database") or AURORA_DB_NAME
+
+        if all([user, password, host, dbname]):
+            return f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{dbname}"
         return None
 
-    def _fetch_secret_password(self) -> Optional[str]:
+    def _fetch_secret_params(self) -> Dict[str, str]:
         if not AURORA_SECRET_ARN:
-            return None
+            return {}
         try:
             client = boto3.client("secretsmanager")
             resp = client.get_secret_value(SecretId=AURORA_SECRET_ARN)
             secret_string = resp.get("SecretString")
             if not secret_string:
-                return None
+                return {}
             data = json.loads(secret_string)
-            return data.get("password") or data.get("master_password")
+            return data if isinstance(data, dict) else {}
         except Exception as e:
-            logger.warning("Failed to fetch password from secret %s: %s", AURORA_SECRET_ARN, e)
-            return None
+            logger.warning("Failed to fetch secret %s: %s", AURORA_SECRET_ARN, e)
+            return {}
 
     def _create_engine(self, conn_str: str) -> Engine:
         logger.info("Creating Aurora engine with pool_size=%s, max_overflow=%s", DB_POOL_SIZE, DB_MAX_OVERFLOW)

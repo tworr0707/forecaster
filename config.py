@@ -26,8 +26,8 @@ DB_MAX_OVERFLOW = int(os.getenv("DB_MAX_OVERFLOW", "5"))      # extra conns abov
 USE_DB_STUB = os.getenv("USE_DB_STUB", "false").lower() == "true"  # in-memory dev mode
 
 # Bedrock model ids (non-secret; set per environment)
-EMBEDDING_MODEL_ID = os.getenv("EMBEDDING_MODEL_ID", "cohere.embed-english-v3")
-LOGIC_MODEL_ID = os.getenv("LOGIC_MODEL_ID", "anthropic.claude-3-7-sonnet-20241022")
+EMBEDDING_MODEL_ID = os.getenv("EMBEDDING_MODEL_ID", "cohere.embed-multilingual-v3")
+LOGIC_MODEL_ID = os.getenv("LOGIC_MODEL_ID", "anthropic.claude-3-7-sonnet-20250219-v1:0")
 
 # Bedrock stub toggles for offline/dev
 BEDROCK_STUB = os.getenv("BEDROCK_STUB", "false").lower() == "true"

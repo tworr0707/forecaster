@@ -27,7 +27,7 @@ ForecasterStack(
     "ForecasterStack",
     env=cdk.Environment(
         account=os.getenv("CDK_DEFAULT_ACCOUNT"),
-        region=os.getenv("CDK_DEFAULT_REGION", "eu-west-1"),
+        region=os.getenv("CDK_DEFAULT_REGION", "eu-west-2"),
     ),
 )
 
