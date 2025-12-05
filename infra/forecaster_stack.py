@@ -25,7 +25,12 @@ class ForecasterStack(cdk.Stack):
         instance_type = self.node.try_get_context("ec2_instance_type") or "p5.2xlarge"
         key_name = self.node.try_get_context("ec2_key_name")  # optional
         plots_bucket_name = self.node.try_get_context("plots_bucket") or "forecaster-plots-dev"
-        bedrock_models_arn = self.node.try_get_context("bedrock_model_arn") or "*"  # scope later
+        bedrock_model_arns = self.node.try_get_context("bedrock_model_arns") or [
+            "arn:aws:bedrock:us-*:*:foundation-model/cohere.embed-multilingual-v3",
+            "arn:aws:bedrock:eu-*:*:foundation-model/cohere.embed-multilingual-v3",
+            "arn:aws:bedrock:us-*:*:foundation-model/anthropic.claude-3-7-sonnet-20250219-v1:0",
+            "arn:aws:bedrock:eu-*:*:foundation-model/anthropic.claude-3-7-sonnet-20250219-v1:0",
+        ]
 
         # VPC with 2 private + 1 public subnet, 1 NAT
         vpc = ec2.Vpc(
@@ -92,7 +97,7 @@ class ForecasterStack(cdk.Stack):
         ec2_role.add_to_policy(
             iam.PolicyStatement(
                 actions=["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
-                resources=[bedrock_models_arn],
+                resources=bedrock_model_arns,
             )
         )
         # Allow S3 bucket access

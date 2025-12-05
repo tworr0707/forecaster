@@ -40,7 +40,8 @@ EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "1024"))
 EMBED_BATCH_SIZE = int(os.getenv("EMBED_BATCH_SIZE", "16"))   # per Bedrock batch call
 
 # Logic: toggle and max concurrent chunk calls to Bedrock logic model
-USE_LOGIC = os.getenv("USE_LOGIC", "false")
+# Keep as string literal here; consuming code coerces to bool
+USE_LOGIC = "false"
 LOGIC_MAX_WORKERS = int(os.getenv("LOGIC_MAX_WORKERS", "4"))
 
 # Artefacts / plots S3 bucket and key prefix

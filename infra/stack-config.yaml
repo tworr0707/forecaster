@@ -8,4 +8,8 @@ db_name: forecaster
 ec2_instance_type: p5.2xlarge
 ec2_key_name: your-keypair-name
 plots_bucket: forecaster-plots-dev
-bedrock_model_arn: "*"
+bedrock_model_arns:
+  - arn:aws:bedrock:us-*:*:foundation-model/cohere.embed-multilingual-v3
+  - arn:aws:bedrock:eu-*:*:foundation-model/cohere.embed-multilingual-v3
+  - arn:aws:bedrock:us-*:*:foundation-model/anthropic.claude-3-7-sonnet-20250219-v1:0
+  - arn:aws:bedrock:eu-*:*:foundation-model/anthropic.claude-3-7-sonnet-20250219-v1:0
