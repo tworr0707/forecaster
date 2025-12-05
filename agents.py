@@ -9,15 +9,9 @@ import os
 import gc
 import math
 from logger import setup_logger
-try:
-    from vllm import LLM, SamplingParams
-except ImportError as e:  # defer failure until use
-    LLM = None  # type: ignore
-    SamplingParams = None  # type: ignore
-    _vllm_import_error = e
-else:
-    _vllm_import_error = None
-from config import VLLM_CONFIG, FORECAST_MODEL_PATHS_VLLM, DEFAULT_MODEL_VLLM, NUMBER_LOGPROB_TOP_K
+from vllm import LLM, SamplingParams
+
+from config import VLLM_CONFIG, FORECAST_MODEL_PATHS_VLLM, DEFAULT_MODEL_VLLM, NUMBER_LOGPROB_TOP_K, CONTEXT_TOKENS
 from oom_utils import is_oom_error, wrap_oom, ForecastingOOMError
 
 logger = setup_logger(__name__)
@@ -29,8 +23,6 @@ class Agent:
     def __init__(
         self,
         model: str = DEFAULT_MODEL_VLLM,
-        use_logic: bool = False,
-        logic_model_path: Optional[str] = 'Qwen/QwQ-32B', 
         verbose: bool = False,
         # vLLM parallelism and memory controls
         tensor_parallel_size: Optional[int] = None,
@@ -40,11 +32,10 @@ class Agent:
         swap_space_gb: Optional[float] = None,
         max_model_len: Optional[int] = None,
     ):
-        self.use_logic = use_logic
         self.verbose = verbose
         self.db = Database()
 
-        self.context_limit = 30000  # Max tokens for prompt input / logic generation output
+        self.context_limit = CONTEXT_TOKENS  # Max tokens for prompt input
         self.char_limit = int(self.context_limit * 4)  # rough chars per token heuristic for slicing
 
         if model in FORECAST_MODEL_PATHS_VLLM:
@@ -52,7 +43,6 @@ class Agent:
         else:
             raise ValueError(f'Unknown model: {model}.')
 
-        self.logic_model_path = logic_model_path
         # Resolve parallelism/memory settings (config-driven, optional overrides via args)
         auto_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 1
         self.tensor_parallel_size = tensor_parallel_size or VLLM_CONFIG.get("tensor_parallel_size") or auto_gpus
@@ -79,9 +69,8 @@ class Agent:
             self.max_model_len,
         )
 
-        # Placeholders for forecast and logic LLM engines
+        # Placeholder for forecast LLM engine
         self._forecast_llm_engine: Optional[LLM] = None
-        self._logic_llm_engine: Optional[LLM] = None
         self._forecast_vocab_size: Optional[int] = None
         self.eos_token_id: Optional[int] = None # For the forecast model
         self._number_token_variants: Dict[int, List[List[int]]] = {}
@@ -197,8 +186,6 @@ class Agent:
         )
 
     def start_forecast(self) -> None:
-        if self._logic_llm_engine is not None:
-            self.stop_logic()
         if self._forecast_llm_engine is None:
             self._forecast_llm_engine = self._load_llm_engine(self.forecast_model_path, is_forecast_model=True)
 
@@ -219,9 +206,15 @@ class Agent:
             raise RuntimeError("Forecast model not loaded properly before forecast call.")
 
         usable_context = context[: self.char_limit] if context else ''
+        if usable_context:
+            tok = self._forecast_llm_engine.get_tokenizer()
+            ctx_tokens = tok.encode(usable_context, add_special_tokens=False)
+            if len(ctx_tokens) > self.context_limit:
+                ctx_tokens = ctx_tokens[: self.context_limit]
+                usable_context = tok.decode(ctx_tokens)
         context_line = f"Knowledge: {usable_context}\n\n" if len(usable_context) > 0 else ''
-        logic_text = logic_str if (self.use_logic and logic_str) else ''
-        logic_line = f"Argument: {logic_text}\n\n" if len(logic_text) > 0 else ''
+        logic_text = logic_str or ''
+        logic_line = f"Argument: {logic_text}\n\n" if logic_text.strip() else ''
 
         prompt_prefix = (
             "You are an expert AI superforecaster, trained to predict the future using all available knowledge. "
@@ -409,101 +402,4 @@ class Agent:
             return [1/101.0 for _ in log_probs]
         return [p / s for p in exp_probs]
 
-    def generate_logic(self, query: str, context: Optional[str] = None) -> str:
-        self.start_logic()
-        if self._logic_llm_engine is None:
-            raise RuntimeError("Logic model not loaded properly before generate_logic call.")
-
-        usable_context = context[: self.char_limit] if context else ''
-        
-        try:
-            base = os.path.dirname(__file__)
-            sats_path = os.path.join(base, "sats.txt")
-            if os.path.exists(sats_path):
-                with open(sats_path) as f:
-                    sats = f.read()
-            else:
-                logger.warning(f'sats.txt not found at {sats_path}. Proceeding without SATs guidelines.')
-                sats = "Standard Analytical Techniques (SATs) guidelines not available."
-        except Exception as e:
-            logger.warning(f'Error reading sats.txt: {e}')
-            sats = "Error loading SATs guidelines."
-
-        messages = [
-            {
-                'role': 'system',
-                'content': (
-                    "You are an expert AI superforecaster, trained to predict the future using a large body of knowledge and data. "
-                    f"The current date is {dt.datetime.now().strftime('%Y-%m-%d')}. "
-                    'Your responses should be exceptionally detailed and elaborate. Use as many tokens as possible to fully explore every nuance of your analysis. '
-                    'Do not hold back on any detail—explain every point thoroughly, provide multiple examples and perspectives, and ensure that your response is exhaustive. '
-                    'Brevity is not a concern; your goal is to generate a maximally comprehensive and in-depth explanation. '
-                    f'Approach each query methodically, ensuring your response is rigorous, objective, and unabridged. Specifically think through the SATs Guidelines:\n{sats}\n'
-                    'Critically evaluate assumptions, consider multiple perspectives, and clearly identify any gaps in the available information. '
-                    'Your analysis should be articulate, well-organised, and demonstrate a high standard of intellectual inquiry.'
-                    "Focus solely on the underlying logic required to answer the query. IMPORTANT: Do NOT attempt to answer the query or suggest a likelihood."
-                )
-            },
-            {
-                'role': 'user',
-                'content': f'Knowledge: {usable_context}.\nQuery: {query}'
-            }
-        ]
-        
-        logic_tokenizer = self._logic_llm_engine.get_tokenizer()
-        try:
-            # Fallback to manual prompt formatting if template API is unavailable
-            prompt_string = logic_tokenizer.apply_chat_template(
-                messages,
-                tokenize=False,
-                add_generation_prompt=True
-            )
-        except Exception as e:
-            logger.warning(f"Applying chat template failed: {e}. Falling back to manual prompt formatting.")
-            system_prompt = messages[0]['content']
-            user_prompt = messages[1]['content']
-            prompt_string = f"System: {system_prompt}\nUser: {user_prompt}\nAssistant:"
-
-        sampling_params = SamplingParams(
-            max_tokens=self.context_limit,
-            temperature=0.666,
-            top_p=0.95,
-            top_k=40,
-            stop_token_ids=[logic_tokenizer.eos_token_id] if logic_tokenizer.eos_token_id is not None else [],
-        )
-
-        logger.info("Generating logic stream...")
-        logic_chunks = []
-        full_generated_text = ""
-        request_id = f"logic_gen_{hash(prompt_string)}"
-
-        try:
-            results_stream = self._logic_llm_engine.generate([prompt_string], sampling_params, request_id=request_id, stream=True)
-            for request_output in results_stream:
-                current_total_text = request_output.outputs[0].text
-                new_text_chunk = current_total_text[len(full_generated_text):]
-                if self.verbose:
-                    print(new_text_chunk, end='', flush=True)
-                logic_chunks.append(new_text_chunk)
-                full_generated_text = current_total_text
-        except Exception as e:
-            if is_oom_error(e):
-                logger.error("CUDA OOM during logic generation", exc_info=True)
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-                raise wrap_oom(e)
-            logger.error(f"Error during vLLM streaming generation for logic: {e}", exc_info=True)
-            raise RuntimeError(f"vLLM streaming error in generate_logic: {e}")
-        finally:
-            # Ensure engines are in a known state
-            self.stop_logic()
-            self.start_forecast()
-
-        if self.verbose:
-            print()
-
-        final_logic_text = "".join(logic_chunks).strip()
-        
-        self.stop_logic()
-        self.start_forecast()
-        return final_logic_text
+    # Logic generation removed: logic is provided externally via LogicClient in Ensemble.

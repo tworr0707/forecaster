@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import re
+import datetime as dt
 from typing import Optional
 
 import boto3
@@ -16,15 +16,37 @@ from config import (
     USE_DB_STUB,
     BEDROCK_LOGIC_STUB,
     BEDROCK_LOGIC_STUB_FALLBACK,
+    SATS_PATH,
 )
 from logger import setup_logger
 
 logger = setup_logger(__name__)
 
+
+def _load_sats_text() -> str:
+    sats_path = SATS_PATH or os.path.join(os.path.dirname(__file__), "sats.txt")
+    try:
+        if os.path.exists(sats_path):
+            with open(sats_path) as f:
+                raw = f.read()
+                return raw.replace('{', '{{').replace('}', '}}')
+    except Exception as e:
+        logger.warning("Error reading sats.txt: %s", e)
+    return "Standard Analytical Techniques (SATs) guidelines not available."
+
+
+SATS_TEXT = _load_sats_text()
+
 SYSTEM_PROMPT = (
-    "You are an analytic reasoning assistant for forecasting. "
-    "Provide concise but rigorous reasoning that helps a forecaster, "
-    "without giving probabilities or final answers."
+    "You are an expert AI superforecaster, trained to predict the future using a large body of knowledge and data. "
+    f"The current date is {dt.datetime.now().strftime('%Y-%m-%d')}. "
+    'Your responses should be exceptionally detailed and elaborate. Use as many tokens as possible to fully explore every nuance of your analysis. '
+    'Do not hold back on any detail—explain every point thoroughly, provide multiple examples and perspectives, and ensure that your response is exhaustive. '
+    'Brevity is not a concern; your goal is to generate a maximally comprehensive and in-depth explanation. '
+    f'Approach each query methodically, ensuring your response is rigorous, objective, and unabridged. Specifically think through the SATs Guidelines:\n{SATS_TEXT}\n'
+    'Critically evaluate assumptions, consider multiple perspectives, and clearly identify any gaps in the available information. '
+    'Your analysis should be articulate, well-organised, and demonstrate a high standard of intellectual inquiry.'
+    "Focus solely on the underlying logic required to answer the query. IMPORTANT: Do NOT attempt to answer the query or suggest a likelihood."
 )
 
 
@@ -42,6 +64,7 @@ class LogicClient:
         if self.stub_mode:
             return self._stub_logic(query, context_chunk)
 
+        
         user_prompt = f"Knowledge (chunk):\n{context_chunk}\n\nQuery: {query}\n\nExplain relevant causal/forecasting reasoning only."
         payload = {
             "anthropic_version": "bedrock-2023-05-31",
@@ -72,7 +95,7 @@ class LogicClient:
                         msg = outputs[0].get("text")
             if not msg:
                 raise ValueError("No logic text returned from Bedrock response")
-            return self._strip_thinking(msg)
+            return msg
         except Exception as e:
             logger.error("Logic generation failed: %s", e, exc_info=True)
             if BEDROCK_LOGIC_STUB_FALLBACK:
@@ -81,10 +104,7 @@ class LogicClient:
             raise
 
     @staticmethod
-    def _strip_thinking(text: str) -> str:
-        return re.sub(r"<thinking>.*?</thinking>", "", text, flags=re.DOTALL).strip()
-
-    @staticmethod
     def _stub_logic(query: str, context_chunk: str) -> str:
+        context_chunk = context_chunk or ""
         digest = hashlib.sha256((query + context_chunk[:200]).encode("utf-8")).hexdigest()
         return f"Stub reasoning (offline): key factors hashed {digest[:12]}."

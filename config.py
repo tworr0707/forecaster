@@ -41,8 +41,16 @@ EMBED_BATCH_SIZE = int(os.getenv("EMBED_BATCH_SIZE", "16"))   # per Bedrock batc
 
 # Logic: toggle and max concurrent chunk calls to Bedrock logic model
 # Keep as string literal here; consuming code coerces to bool
-USE_LOGIC = "false"
+USE_LOGIC = os.getenv("USE_LOGIC", "false").lower() == "true"
 LOGIC_MAX_WORKERS = int(os.getenv("LOGIC_MAX_WORKERS", "4"))
+
+# Context / token limits
+# The maximum size of context provided to a single agent
+# Should be enough to capture relevant infomration but not so big as to flood context window and cause OOM
+CONTEXT_TOKENS = int(os.getenv("CONTEXT_TOKENS", "30000"))
+
+# Paths
+SATS_PATH = os.getenv("SATS_PATH")
 
 # Artefacts / plots S3 bucket and key prefix
 PLOTS_BUCKET = os.getenv("PLOTS_BUCKET", "forecaster-plots-dev")

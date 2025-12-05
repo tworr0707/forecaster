@@ -46,7 +46,7 @@ class Ensemble:
             "llama-8B",
         ]
         self.use_logic: bool = str(USE_LOGIC).lower() == "true"
-        self.agents: List[Any] = [Agent(model=m, use_logic=self.use_logic) for m in default_models]
+        self.agents: List[Any] = [Agent(model=m) for m in default_models]
 
         if not self.agents:
             raise RuntimeError("No agents loaded.")
@@ -285,11 +285,6 @@ class Ensemble:
                     agent.stop_forecast()
                 except Exception as e:
                     logger.error("Cleanup: failed to stop forecast for agent: %s\n%s", e, traceback.format_exc())
-                try:
-                    if hasattr(agent, "stop_logic"):
-                        agent.stop_logic()
-                except Exception as e:
-                    logger.error("Cleanup: failed to stop logic for agent: %s\n%s", e, traceback.format_exc())
                 finally:
                     if torch.cuda.is_available():
                         torch.cuda.empty_cache()

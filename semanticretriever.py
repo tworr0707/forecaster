@@ -91,10 +91,11 @@ class SemanticRetriever:
             return
 
         if len(embeddings) != len(kept_titles):
-            logger.warning(
-                "Mismatch in embeddings (%d) vs titles (%d); continuing with min count.",
+            logger.error(
+                "Mismatch in embeddings (%d) vs titles (%d); aborting store to avoid corruption.",
                 len(embeddings), len(kept_titles)
             )
+            return
 
         for title, emb, txt in zip(kept_titles, embeddings, texts):
             try:
