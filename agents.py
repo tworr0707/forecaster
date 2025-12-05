@@ -77,11 +77,6 @@ class Agent:
         self._percent_token_id: Optional[int] = None
         self.single_token_mode: bool = True
         self.number_logprob_top_k = NUMBER_LOGPROB_TOP_K
-        if _vllm_import_error:
-            raise ImportError(
-                "vLLM is required for Agent but is not installed or failed to import: %s"
-                % _vllm_import_error
-            )
 
     def _load_llm_engine(self, model_path: str, is_forecast_model: bool = False) -> LLM:
         logger.info(
@@ -330,7 +325,6 @@ class Agent:
         """
         tokenizer = self._forecast_llm_engine.get_tokenizer()
         log_floor = math.log(1e-12)
-        log_floor = math.log(1e-12)
         # Each item: (num, variant_tokens, context_str, acc_logprob)
         active = []
         for num, variants in self._number_token_variants.items():
@@ -401,5 +395,3 @@ class Agent:
             logger.warning("Log-prob normalization sum is zero; returning uniform distribution")
             return [1/101.0 for _ in log_probs]
         return [p / s for p in exp_probs]
-
-    # Logic generation removed: logic is provided externally via LogicClient in Ensemble.
