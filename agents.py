@@ -9,7 +9,14 @@ import os
 import gc
 import math
 from logger import setup_logger
-from vllm import LLM, SamplingParams
+try:
+    from vllm import LLM, SamplingParams
+except ImportError as e:  # defer failure until use
+    LLM = None  # type: ignore
+    SamplingParams = None  # type: ignore
+    _vllm_import_error = e
+else:
+    _vllm_import_error = None
 from config import VLLM_CONFIG, FORECAST_MODEL_PATHS_VLLM, DEFAULT_MODEL_VLLM, NUMBER_LOGPROB_TOP_K
 from oom_utils import is_oom_error, wrap_oom, ForecastingOOMError
 
@@ -80,6 +87,11 @@ class Agent:
         self._percent_token_id: Optional[int] = None
         self.single_token_mode: bool = True
         self.number_logprob_top_k = NUMBER_LOGPROB_TOP_K
+        if _vllm_import_error:
+            raise ImportError(
+                "vLLM is required for Agent but is not installed or failed to import: %s"
+                % _vllm_import_error
+            )
 
     def _load_llm_engine(self, model_path: str, is_forecast_model: bool = False) -> LLM:
         logger.info(
@@ -196,46 +208,31 @@ class Agent:
                 torch.cuda.empty_cache()
             gc.collect()
 
-    def start_logic(self) -> None:
-        if self._forecast_llm_engine is not None:
-            self.stop_forecast()
-        if self._logic_llm_engine is None:
-            if self.logic_model_path is None:
-                raise ValueError("Logic model path is not set, but logic generation was requested.")
-            self._logic_llm_engine = self._load_llm_engine(self.logic_model_path)
-    
-    def stop_logic(self) -> None:
-        if self._logic_llm_engine is not None:
-            logger.info(f'Unloading logic vLLM engine: {self.logic_model_path}')
-            del self._logic_llm_engine
-            self._logic_llm_engine = None
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-            gc.collect()
-
     def forecast(self, query: str, context: Optional[str] = None, logic_str: Optional[str] = None) -> pd.DataFrame:
         self.start_forecast()
         if self._forecast_llm_engine is None or self.eos_token_id is None or self._forecast_vocab_size is None:
             raise RuntimeError("Forecast model not loaded properly before forecast call.")
 
         usable_context = context[:self.context_limit] if context else ''
+        context_line = f"Knowledge: {usable_context}\n\n" if len(usable_context) > 0 else ''
         logic_text = logic_str if (self.use_logic and logic_str) else ''
+        logic_line = f"Argument: {logic_text}\n\n" if len(logic_text) > 0 else ''
 
         prompt_prefix = (
             "You are an expert AI superforecaster, trained to predict the future using all available knowledge. "
             f"The current date is {dt.datetime.now().strftime('%Y-%m-%d')}. "
             "Your task is to provide the most accurate prediction based on the given query and knowledge. "
-            "Follow these rules carefully:\n\n"
+            "You MUST follow these rules carefully:\n\n"
             "1. Use all available knowledge as context to inform your prediction.\n"
             "2. Answer with a single numerical percentage between 0 and 100.\n"
-            "3. Do not include any additional text, symbols, or explanations in your response.\n\n"
+            "3. Do NOT include any additional text, symbols, or explanations in your response.\n\n"
             "For example:\n"
-            "If the prediction is 75%, simply respond with:\n"
-            "75\n\n"    
-            f"Chain of thought: {logic_text}\n\n"     
-            f"Knowledge: {usable_context}\n\n"
+            "If the prediction is 50%, simply respond with:\n"
+            "50\n\n"    
+            f"{logic_line}"     
+            f"{context_line}"
             f"Query: {query}\n\n"
-            "Now, provide your prediction:\n"
+            "Now provide your prediction:\n"
             "Answer: "
         )
 
@@ -311,6 +308,7 @@ class Agent:
         for num in range(101):
             token_ids = self._number_token_map.get(num, [])
             if not token_ids:
+                # If tokenizer cannot emit this number, give it floor prob and continue
                 probs.append(log_floor)
                 continue
             context = prompt
@@ -334,8 +332,10 @@ class Agent:
 
     @staticmethod
     def _logsumexp(vals: List[float]) -> float:
-        m = max(vals)
-        return m + math.log(sum(math.exp(v - m) for v in vals)) if vals else float('-inf')
+        if not vals:
+            return float("-inf")
+        t = torch.tensor(vals, dtype=torch.float32)
+        return float(torch.logsumexp(t, dim=0))
 
     def _normalize_log_probs(self, log_probs: List[float]) -> List[float]:
         m = max(log_probs)

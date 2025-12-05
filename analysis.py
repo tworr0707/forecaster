@@ -67,13 +67,8 @@ class ForecasterAnalysis:
         cols = math.ceil(len(selected_queries) / rows)
         fig_width = cols * 5      # 5 inches per subplot 
         fig_height = rows * 3.2   # slightly taller
-        fig, axes = plt.subplots(
-            rows,
-            cols,
-            figsize=(fig_width, fig_height),
-            sharex=True,
-            sharey=True,
-        )
+        fig = plt.Figure(figsize=(fig_width, fig_height))
+        axes = fig.subplots(rows, cols, sharex=True, sharey=True)
         fig.suptitle("Forecaster Situational Awareness Dashboard", fontsize=20, fontweight='bold', y=0.92)
 
         if not isinstance(axes, np.ndarray):

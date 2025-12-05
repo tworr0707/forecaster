@@ -325,3 +325,21 @@ Recommended additional tests before a production deployment:
   - Prefer `agents.py` and the vLLM/Run:ai path for any new deployments.
 
 With the above configuration and operational practices, Forecaster can be run on a single high‑end GPU workstation or on multi‑GPU AWS nodes with S3‑backed models. Adjust the config and environment to match your hardware, models, and reliability requirements. 
+
+### 4.5 Infra (CDK) quickstart
+A minimal CDK stack lives in `infra/` to stand up VPC + Aurora Serverless v2 + EC2 GPU + S3 bucket + Bedrock access.
+
+Config: edit `infra/stack-config.yaml` (non-secret defaults). Secrets (DB password, etc.) stay in env/Secrets Manager.
+
+Deploy (on a machine with AWS credentials):
+```bash
+cd infra
+python -m venv .venv && source .venv/bin/activate
+pip install -r ../requirements.txt
+cdk synth -c config=stack-config.yaml
+cdk deploy ForecasterStack -c config=stack-config.yaml
+```
+
+Context keys (see `stack-config.yaml`): `vpc_cidr`, `aurora_min_acu`, `aurora_max_acu`, `db_name`, `ec2_instance_type`, `ec2_key_name`, `plots_bucket`, `bedrock_model_arn`.
+
+Key resources created: VPC (public/app/db subnets + NAT), Aurora Postgres Serverless v2 with pgvector param group, S3 bucket for plots, EC2 GPU instance with IAM role (Bedrock InvokeModel, S3 RW, Secrets read), VPC endpoints for S3/Bedrock/SSM/Secrets. Outputs: Aurora endpoint/secret ARN, bucket name, EC2 instance ID/AZ.

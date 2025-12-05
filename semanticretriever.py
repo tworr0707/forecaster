@@ -51,43 +51,50 @@ class SemanticRetriever:
 
     def get_context(self, query: str, top_n: int = 4) -> str:
         texts = self.get_top_n_articles(query, top_n=top_n)
+        if not texts:
+            raise ValueError("No context articles retrieved; check embeddings or database content.")
         return "\n\n".join(texts)
 
     # ------------------------------------------------------------------
     # Admin refresh helpers
     # ------------------------------------------------------------------
     def refresh_articles(self, titles: List[str]) -> None:
-        """Fetch text for new titles, embed, and store/update in DB."""
+        """Fetch text for given titles, embed, and store/update in DB.
+
+        - New titles are fetched and inserted.
+        - Existing titles are re-fetched and re-embedded to refresh content.
+        """
         if not titles:
             return
-        # Filter out already-present titles to avoid re-fetch unless updating text/embedding
-        missing_titles = [t for t in titles if not self.db.article_exists(t)]
-        if not missing_titles:
-            logger.info("No new articles to refresh.")
-            return
+
         texts: List[str] = []
         kept_titles: List[str] = []
-        # Fetch article text from Wikipedia via DB helper (which fetches & stores)
-        for title in missing_titles:
+
+        for title in titles:
             try:
-                self.db.get_article(title)  # fetch & store text
-                txt = self.db.load_article(title)
-                if txt:
-                    kept_titles.append(title)
-                    texts.append(txt)
+                # Attempt to fetch and store (handles both new and existing)
+                txt = self.db.fetch_and_store_article(title)
+                if not txt:
+                    continue
+                kept_titles.append(title)
+                texts.append(txt)
             except Exception as e:
                 logger.error("Failed to fetch/store article '%s': %s\n%s", title, e, traceback.format_exc())
+
         if not texts:
-            logger.warning("No texts fetched for new articles; skipping embedding refresh.")
+            logger.warning("No texts fetched for refresh; skipping embedding.")
             return
+
         try:
             embeddings = self.embedding_client.embed_texts(texts)
         except Exception as e:
             logger.error("Embedding failed during refresh: %s", e, exc_info=True)
             return
+
         if len(embeddings) != len(kept_titles):
             logger.warning("Mismatch in embeddings (%d) vs titles (%d); aborting store.", len(embeddings), len(kept_titles))
             return
+
         for title, emb, txt in zip(kept_titles, embeddings, texts):
             try:
                 self.db.store_article(title, txt, embedding=np.array(emb, dtype=float), embedding_model=self.embedding_client.model_id)

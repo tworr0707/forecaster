@@ -17,6 +17,7 @@ from typing import List, Optional, Tuple, Any, Dict
 import numpy as np
 import pandas as pd
 import requests
+import wikipediaapi
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
@@ -31,11 +32,14 @@ from config import (
     AURORA_DB_PASSWORD,
     AURORA_DB_PORT,
     AURORA_DB_USER,
+    AURORA_SECRET_ARN,
     DB_MAX_OVERFLOW,
     DB_POOL_SIZE,
     EMBEDDING_DIM,
     USE_DB_STUB,
 )
+import boto3
+import json
 
 logger = setup_logger(__name__)
 
@@ -49,9 +53,16 @@ class _StubStorage:
 
 
 class Database:
-    """Aurora/Postgres database wrapper with optional in-memory stub."""
+    """Aurora/Postgres database wrapper with optional in-memory stub.
+
+    Uses a shared SQLAlchemy engine per process to avoid spawning multiple
+    connection pools (agents, retriever, analysis share the same engine).
+    """
 
     _lock = threading.RLock()
+    _shared_engine: Optional[Engine] = None
+    _shared_conn_str: Optional[str] = None
+    _shared_stub: _StubStorage = _StubStorage()
 
     def __init__(
         self,
@@ -61,14 +72,26 @@ class Database:
         self.connection_string = connection_string or self._build_connection_string()
         self.use_stub = use_stub if use_stub is not None else (USE_DB_STUB or not self.connection_string)
         self._engine: Optional[Engine] = None
-        self._stub = _StubStorage()
+        self._stub = Database._shared_stub
 
         if self.use_stub:
             logger.warning("Database running in in-memory stub mode; no data will persist. Set Aurora env vars to enable Postgres.")
         else:
-            self._engine = self._create_engine(self.connection_string)
-            register_vector(self._engine)
-            self._init_schema()
+            with Database._lock:
+                if Database._shared_engine is None or Database._shared_conn_str != self.connection_string:
+                    # Dispose of previous engine if switching connections mid-process
+                    if Database._shared_engine is not None:
+                        try:
+                            Database._shared_engine.dispose()
+                        except Exception:
+                            logger.warning("Failed to dispose previous engine during connection switch.")
+                    Database._shared_engine = self._create_engine(self.connection_string)
+                    Database._shared_conn_str = self.connection_string
+                    register_vector(Database._shared_engine)
+                    self._engine = Database._shared_engine
+                    self._init_schema()
+                else:
+                    self._engine = Database._shared_engine
 
     # ------------------------------------------------------------------
     # Connection helpers
@@ -76,12 +99,28 @@ class Database:
     def _build_connection_string(self) -> Optional[str]:
         if AURORA_CONNECTION_STRING:
             return AURORA_CONNECTION_STRING
-        if all([AURORA_DB_USER, AURORA_DB_PASSWORD, AURORA_DB_HOST, AURORA_DB_NAME]):
+        password = AURORA_DB_PASSWORD or self._fetch_secret_password()
+        if all([AURORA_DB_USER, password, AURORA_DB_HOST, AURORA_DB_NAME]):
             return (
-                f"postgresql+psycopg2://{AURORA_DB_USER}:{AURORA_DB_PASSWORD}"
+                f"postgresql+psycopg2://{AURORA_DB_USER}:{password}"
                 f"@{AURORA_DB_HOST}:{AURORA_DB_PORT}/{AURORA_DB_NAME}"
             )
         return None
+
+    def _fetch_secret_password(self) -> Optional[str]:
+        if not AURORA_SECRET_ARN:
+            return None
+        try:
+            client = boto3.client("secretsmanager")
+            resp = client.get_secret_value(SecretId=AURORA_SECRET_ARN)
+            secret_string = resp.get("SecretString")
+            if not secret_string:
+                return None
+            data = json.loads(secret_string)
+            return data.get("password") or data.get("master_password")
+        except Exception as e:
+            logger.warning("Failed to fetch password from secret %s: %s", AURORA_SECRET_ARN, e)
+            return None
 
     def _create_engine(self, conn_str: str) -> Engine:
         logger.info("Creating Aurora engine with pool_size=%s, max_overflow=%s", DB_POOL_SIZE, DB_MAX_OVERFLOW)
@@ -268,6 +307,29 @@ class Database:
                 {"query_vec": emb_arr.tolist(), "top_n": top_n},
             ).fetchall()
             return [(r[0], r[1]) for r in rows]
+
+    # ------------------------------------------------------------------
+    # Simple Wikipedia fetch helper (used by retriever refresh)
+    # ------------------------------------------------------------------
+    def fetch_and_store_article(self, title: str, text: str | None = None) -> Optional[str]:
+        """Store given text or fetch from Wikipedia via wikipedia-api if text is None."""
+        if text is None:
+            try:
+                wiki = wikipediaapi.Wikipedia("Forecaster", "en")
+                page = wiki.page(title)
+                if not page.exists():
+                    logger.warning('Wikipedia page does not exist: "%s"', title)
+                    return None
+                text = page.text
+            except Exception as e:
+                logger.error("Error fetching article '%s': %s", title, e, exc_info=True)
+                return None
+        try:
+            self.store_article(title, text)
+            return text
+        except Exception as e:
+            logger.error("Failed to store article '%s': %s", title, e, exc_info=True)
+            return None
 
     # ------------------------------------------------------------------
     # Forecast / ensemble / logic persistence

@@ -62,9 +62,11 @@ def main() -> None:
                 f"GPU OOM while forecasting query '{query}'. Reduce model size/parallelism or adjust VLLM_CONFIG. {e}",
                 file=sys.stderr,
             )
-            sys.exit(42)
+            # Skip this query but continue others
+            continue
         except Exception as e:
             print(f"Error for query '{query}': {e}")
+            continue
 
         try:
             analysis.plot_charts()

@@ -27,3 +27,8 @@ boto3>=1.35.0
 sqlalchemy>=2.0.0,<2.1.0
 psycopg2-binary>=2.9.0
 pgvector>=0.2.4
+
+# Infra / CDK
+aws-cdk-lib==2.173.0
+constructs>=10.3.0,<11.0.0
+PyYAML>=6.0

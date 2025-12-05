@@ -10,13 +10,14 @@ import os
 # AWS / Aurora / Bedrock (all secrets via env vars)
 # ---------------------------------------------------------------------------
 # AWS region for Bedrock/S3/RDS calls
-AWS_REGION = os.getenv("AWS_REGION", "eu-west-1")
+AWS_REGION = os.getenv("AWS_REGION", "eu-west-2")
 
 # Aurora connection: prefer full URI; otherwise supply parts via env.
 # Example URI: postgresql+psycopg2://user:pass@host:5432/dbname
 AURORA_CONNECTION_STRING = os.getenv("AURORA_CONNECTION_STRING")
 AURORA_DB_USER = os.getenv("AURORA_DB_USER", "CHANGE_ME_USER")  # set to Aurora user
 AURORA_DB_PASSWORD = os.getenv("AURORA_DB_PASSWORD")  # store in Secrets Manager/SSM
+AURORA_SECRET_ARN = os.getenv("AURORA_SECRET_ARN")    # optional: fetched at runtime if set
 AURORA_DB_HOST = os.getenv("AURORA_DB_HOST", "aurora-cluster.endpoint")
 AURORA_DB_PORT = os.getenv("AURORA_DB_PORT", "5432")
 AURORA_DB_NAME = os.getenv("AURORA_DB_NAME", "forecaster")
@@ -39,7 +40,7 @@ EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "1024"))
 EMBED_BATCH_SIZE = int(os.getenv("EMBED_BATCH_SIZE", "16"))   # per Bedrock batch call
 
 # Logic: toggle and max concurrent chunk calls to Bedrock logic model
-USE_LOGIC = "false"
+USE_LOGIC = os.getenv("USE_LOGIC", "false")
 LOGIC_MAX_WORKERS = int(os.getenv("LOGIC_MAX_WORKERS", "4"))
 
 # Artefacts / plots S3 bucket and key prefix
@@ -90,7 +91,7 @@ VLLM_CONFIG = {
     "gpu_memory_utilization": 0.90,
     "swap_space_gb": None,                 # Enable for KV offload if needed
     "max_model_len": None,                 # Let vLLM infer if None
-    "load_format": "runai_streamer",
+    "load_format": None,                   # set to "runai_streamer" only in Run:ai/S3 environments
     "model_loader_extra_config": {
         "concurrency": 16,                 # Tune for S3 bandwidth; 16–64 typical
         "distributed": False,              # True for multi-node streaming
@@ -100,8 +101,7 @@ VLLM_CONFIG = {
 
 # vLLM logprob extraction settings
 # NUMBER_LOGPROB_TOP_K: how many top logprobs to request per step; missing tokens get a tiny floor prob
-NUMBER_LOGPROB_TOP_K = int(os.getenv("NUMBER_LOGPROB_TOP_K", "256"))
-
+NUMBER_LOGPROB_TOP_K = 100_000
 
 def validate_config():
     """Basic validation to fail fast with actionable errors."""
@@ -121,8 +121,8 @@ def validate_config():
         conc = mlc.get("concurrency", 0)
         if conc and conc < 1:
             raise ValueError("model_loader_extra_config.concurrency must be >=1.")
-    if NUMBER_LOGPROB_TOP_K < 64:
-        raise ValueError("NUMBER_LOGPROB_TOP_K must be at least 64 to capture number tokens reasonably.")
+    if NUMBER_LOGPROB_TOP_K < 101:
+        raise ValueError("NUMBER_LOGPROB_TOP_K must be at least 101 to cover numbers 0–100 with minimal flooring.")
 
     if VLLM_CONFIG.get("load_format") == "runai_streamer":
         try:

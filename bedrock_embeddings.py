@@ -39,24 +39,30 @@ class EmbeddingClient:
         if self.stub_mode:
             return [self._hash_to_unit_vector(t) for t in texts]
 
-        payload = {
-            "texts": texts,
-            "input_type": "search_document",
-        }
-        try:
-            body = json.dumps(payload)
-            response = self.client.invoke_model(modelId=self.model_id, body=body)
-            output = json.loads(response["body"].read())
-            embeddings = output.get("embeddings") or output.get("embedding") or []
-            if not embeddings:
-                raise ValueError("No embeddings returned from Bedrock")
-            return embeddings
-        except Exception as e:
-            logger.error("Bedrock embedding call failed: %s", e, exc_info=True)
-            if BEDROCK_STUB_FALLBACK:
-                logger.warning("Falling back to stub embeddings after Bedrock error.")
-                return [self._hash_to_unit_vector(t) for t in texts]
-            raise
+        max_batch = EMBED_BATCH_SIZE
+        results: List[List[float]] = []
+        for i in range(0, len(texts), max_batch):
+            batch = texts[i : i + max_batch]
+            payload = {
+                "texts": batch,
+                "input_type": "search_document",
+            }
+            try:
+                body = json.dumps(payload)
+                response = self.client.invoke_model(modelId=self.model_id, body=body)
+                output = json.loads(response["body"].read())
+                embeddings = output.get("embeddings") or output.get("embedding") or []
+                if not embeddings:
+                    raise ValueError("No embeddings returned from Bedrock")
+                results.extend(embeddings)
+            except Exception as e:
+                logger.error("Bedrock embedding call failed: %s", e, exc_info=True)
+                if BEDROCK_STUB_FALLBACK:
+                    logger.warning("Falling back to stub embeddings after Bedrock error...")
+                    results.extend([self._hash_to_unit_vector(t) for t in batch])
+                    continue
+                raise
+        return results
 
     # ------------------------------------------------------------------
     # Helpers
